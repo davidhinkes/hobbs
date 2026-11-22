@@ -1,0 +1,450 @@
+[
+ {
+  "icaoId": "WAAA",
+  "firId": "WAAF",
+  "firName": "WAAF UJUNG PANDANG",
+  "receiptTime": "2026-11-22T11:35:07.739Z",
+  "validTimeFrom": 1795347000,
+  "validTimeTo": 1795368600,
+  "seriesId": "14",
+  "hazard": "VA",
+  "qualifier": "ERUPTION MT IBU",
+  "base": 0,
+  "top": 7000,
+  "geom": "AREA",
+  "coords": [
+   {
+    "lon": 127.633,
+    "lat": 1.55
+   },
+   {
+    "lon": 128.083,
+    "lat": 1.283
+   },
+   {
+    "lon": 127.983,
+    "lat": 1.117
+   },
+   {
+    "lon": 127.8,
+    "lat": 1.05
+   },
+   {
+    "lon": 127.567,
+    "lat": 1.5
+   },
+   {
+    "lon": 127.633,
+    "lat": 1.55
+   }
+  ],
+  "dir": "SE",
+  "spd": "10",
+  "chng": "NC",
+  "rawSigmet": "WVID21 WAAA 221130\nWAAF SIGMET 14 VALID 221130/221730 WAAA-\nWAAF UJUNG PANDANG  FIR VA\nERUPTION MT IBU PSN N0129 E12738 VA CLD OBS AT 1110Z WI N0133 E12738\n- N0117 E12805 - N0107 E12759 - N0103 E12748 - N0130 E12734 - N0133\nE12738 SFC/FL070 MOV SE 10KT NC="
+ },
+ {
+  "icaoId": "SEGU",
+  "firId": "SEFG",
+  "firName": "SEFG GUAYAQUIL",
+  "receiptTime": "2026-11-22T11:53:27.851Z",
+  "validTimeFrom": 1795348200,
+  "validTimeTo": 1795369800,
+  "seriesId": "3",
+  "hazard": "VA",
+  "qualifier": "ERUPTION MT SANGAY",
+  "base": 0,
+  "top": 24000,
+  "geom": "AREA",
+  "coords": [
+   {
+    "lon": -78.517,
+    "lat": -1.817
+   },
+   {
+    "lon": -78.333,
+    "lat": -1.983
+   },
+   {
+    "lon": -78.333,
+    "lat": -2.017
+   },
+   {
+    "lon": -78.6,
+    "lat": -2.033
+   },
+   {
+    "lon": -78.517,
+    "lat": -1.817
+   }
+  ],
+  "dir": "NW",
+  "spd": "10",
+  "chng": null,
+  "rawSigmet": "WVEQ31 SEGU 221150\nSEFG SIGMET 3 VALID 221150/221750 SEGU-\nSEFG GUAYAQUIL FIR VA ERUPTION MT SANGAY PSN S0200 W07820 \nVA CLD OBS AT 1110Z WI S0149 W07831 - S0159 W07820 - S0201 W07820 - \nS0202 W07836 - S0149 W07831 SFC/FL240 MOV NW 10KT \nFCST AT 1700Z WI S0147 W07838 - S0159 W07819 - S0201 W07819 - S0207 \nW07843 - S0147 W07838="
+ },
+ {
+  "icaoId": "SEGU",
+  "firId": "SEFG",
+  "firName": "SEFG GUAYAQUIL",
+  "receiptTime": "2026-11-22T11:53:27.856Z",
+  "validTimeFrom": 1795348200,
+  "validTimeTo": 1795369800,
+  "seriesId": "3F",
+  "hazard": "VA",
+  "qualifier": "ERUPTION MT SANGAY",
+  "base": 0,
+  "top": 24000,
+  "geom": "AREA",
+  "coords": [
+   {
+    "lon": -78.633,
+    "lat": -1.783
+   },
+   {
+    "lon": -78.317,
+    "lat": -1.983
+   },
+   {
+    "lon": -78.317,
+    "lat": -2.017
+   },
+   {
+    "lon": -78.717,
+    "lat": -2.117
+   },
+   {
+    "lon": -78.633,
+    "lat": -1.783
+   }
+  ],
+  "dir": "NW",
+  "spd": "10",
+  "chng": null,
+  "rawSigmet": "WVEQ31 SEGU 221150\nSEFG SIGMET 3 VALID 221150/221750 SEGU-\nSEFG GUAYAQUIL FIR VA ERUPTION MT SANGAY PSN S0200 W07820 \nVA CLD OBS AT 1110Z WI S0149 W07831 - S0159 W07820 - S0201 W07820 - \nS0202 W07836 - S0149 W07831 SFC/FL240 MOV NW 10KT \nFCST AT 1700Z WI S0147 W07838 - S0159 W07819 - S0201 W07819 - S0207 \nW07843 - S0147 W07838="
+ },
+ {
+  "icaoId": "MHTG",
+  "firId": "MHTG",
+  "firName": "MHCC CENTRAL AMERICAN",
+  "receiptTime": "2026-11-22T12:19:15.768Z",
+  "validTimeFrom": 1795349700,
+  "validTimeTo": 1795371300,
+  "seriesId": "3",
+  "hazard": "VA",
+  "qualifier": "FUEGO",
+  "base": 0,
+  "top": 14000,
+  "geom": "AREA",
+  "coords": [
+   {
+    "lon": -90.633,
+    "lat": 14.533
+   },
+   {
+    "lon": -90.633,
+    "lat": 14.367
+   },
+   {
+    "lon": -90.867,
+    "lat": 14.467
+   },
+   {
+    "lon": -90.867,
+    "lat": 14.483
+   },
+   {
+    "lon": -90.633,
+    "lat": 14.533
+   }
+  ],
+  "dir": "E",
+  "spd": "5",
+  "chng": null,
+  "rawSigmet": "WVHO31 MHTG 221215\nMHTG SIGMET 3 VALID 221215/221815 MHTG-\nMHCC CENTRAL AMERICAN FIR VA FUEGO PSN N1428 W09052\nVA CLD OBS AT 1140Z SFC/FL140 N1432 W09038 - N1422 W09038\n- N1428 W09052 - N1429 W09052 - N1432 W09038 MOV E 5KT\nFCST 1730Z VA CLD SFC/FL140 N1429 W09052 - N1422 W09038 -\nN1414 W09044 - N1428 W09053 - N1429 W09052="
+ },
+ {
+  "icaoId": "MHTG",
+  "firId": "MHTG",
+  "firName": "MHCC CENTRAL AMERICAN",
+  "receiptTime": "2026-11-22T12:19:15.774Z",
+  "validTimeFrom": 1795349700,
+  "validTimeTo": 1795371300,
+  "seriesId": "3F",
+  "hazard": "VA",
+  "qualifier": "FUEGO",
+  "base": 0,
+  "top": 14000,
+  "geom": "AREA",
+  "coords": [
+   {
+    "lon": -90.867,
+    "lat": 14.483
+   },
+   {
+    "lon": -90.633,
+    "lat": 14.367
+   },
+   {
+    "lon": -90.733,
+    "lat": 14.233
+   },
+   {
+    "lon": -90.883,
+    "lat": 14.467
+   },
+   {
+    "lon": -90.867,
+    "lat": 14.483
+   }
+  ],
+  "dir": "E",
+  "spd": "5",
+  "chng": null,
+  "rawSigmet": "WVHO31 MHTG 221215\nMHTG SIGMET 3 VALID 221215/221815 MHTG-\nMHCC CENTRAL AMERICAN FIR VA FUEGO PSN N1428 W09052\nVA CLD OBS AT 1140Z SFC/FL140 N1432 W09038 - N1422 W09038\n- N1428 W09052 - N1429 W09052 - N1432 W09038 MOV E 5KT\nFCST 1730Z VA CLD SFC/FL140 N1429 W09052 - N1422 W09038 -\nN1414 W09044 - N1428 W09053 - N1429 W09052="
+ },
+ {
+  "icaoId": "NTAA",
+  "firId": "NTTT",
+  "firName": "NTTT TAHITI",
+  "receiptTime": "2026-11-22T13:42:29.384Z",
+  "validTimeFrom": 1795355100,
+  "validTimeTo": 1795369500,
+  "seriesId": "A4",
+  "hazard": "TS",
+  "qualifier": "EMBD",
+  "base": null,
+  "top": 55000,
+  "geom": "AREA",
+  "coords": [
+   {
+    "lon": -149,
+    "lat": -5.25
+   },
+   {
+    "lon": -147.75,
+    "lat": -0.25
+   },
+   {
+    "lon": -138.25,
+    "lat": 3.5
+   },
+   {
+    "lon": -136,
+    "lat": -2.75
+   },
+   {
+    "lon": -149,
+    "lat": -5.25
+   }
+  ],
+  "dir": "-",
+  "spd": "0",
+  "chng": "NC",
+  "rawSigmet": "WSPF21 NTAA 221342\nNTTT SIGMET A4 VALID 221345/221745 NTAA-\nNTTT TAHITI FIR/UIR EMBD TS FCST WI S0515 W14900 - S0015 W14745 -\nN0330 W13815 - S0245 W13600 - S0515 W14900 TOP FL550 STNR NC="
+ },
+ {
+  "icaoId": "FIMP",
+  "firId": "FIMM",
+  "firName": "FIMM MAURITIUS",
+  "receiptTime": "2026-11-22T14:17:39.555Z",
+  "validTimeFrom": 1795355100,
+  "validTimeTo": 1795369500,
+  "seriesId": "B03",
+  "hazard": "TS",
+  "qualifier": "EMBD",
+  "base": null,
+  "top": 39000,
+  "geom": "AREA",
+  "coords": [
+   {
+    "lon": 57,
+    "lat": -41.5
+   },
+   {
+    "lon": 57,
+    "lat": -45
+   },
+   {
+    "lon": 64,
+    "lat": -45
+   },
+   {
+    "lon": 70.833,
+    "lat": -39.167
+   },
+   {
+    "lon": 57,
+    "lat": -41.5
+   },
+   {
+    "lon": 57,
+    "lat": -41.5
+   }
+  ],
+  "dir": "-",
+  "spd": "0",
+  "chng": "NC",
+  "rawSigmet": "WSMA31 FIMP 221405\nFIMM SIGMET B03 VALID 221345/221745 FIMP-\nFIMM MAURITIUS FIR EMBD TS OBS AT 1345Z W OF LINE S4130 E05700 -\nS3910 E07050 - S4500 E06400 TOP ABV FL390 STNR NC="
+ },
+ {
+  "icaoId": "YMRF",
+  "firId": "YMMM",
+  "firName": "YMMM MELBOURNE",
+  "receiptTime": "2026-11-22T13:22:15.206Z",
+  "validTimeFrom": 1795356000,
+  "validTimeTo": 1795370400,
+  "seriesId": "G06",
+  "hazard": "TURB",
+  "qualifier": "SEV",
+  "base": 0,
+  "top": 6000,
+  "geom": "AREA",
+  "coords": [
+   {
+    "lon": 147.167,
+    "lat": -41.667
+   },
+   {
+    "lon": 148.333,
+    "lat": -41.167
+   },
+   {
+    "lon": 148.333,
+    "lat": -42
+   },
+   {
+    "lon": 146.667,
+    "lat": -43.5
+   },
+   {
+    "lon": 146.333,
+    "lat": -43.5
+   },
+   {
+    "lon": 146.167,
+    "lat": -41.667
+   },
+   {
+    "lon": 147.167,
+    "lat": -41.667
+   }
+  ],
+  "dir": "-",
+  "spd": "0",
+  "chng": "NC",
+  "rawSigmet": "WSAU21 YMRF 221321\nYMMM SIGMET G06 VALID 221400/221800 YMRF-\nYMMM MELBOURNE FIR SEV TURB FCST WI S4140 E14710 - S4110 E14820 -\nS4200 E14820 - S4330 E14640 - S4330 E14620 - S4140 E14610 SFC/6000FT\nSTNR NC="
+ },
+ {
+  "icaoId": "FAOR",
+  "firId": "FAJO",
+  "firName": "FAJO JOHANNESBURG OCEANIC",
+  "receiptTime": "2026-11-22T13:51:29.515Z",
+  "validTimeFrom": 1795356000,
+  "validTimeTo": 1795370400,
+  "seriesId": "F01",
+  "hazard": "TS",
+  "qualifier": "EMBD",
+  "base": null,
+  "top": 32000,
+  "geom": "AREA",
+  "coords": [
+   {
+    "lon": 5.383,
+    "lat": -31.967
+   },
+   {
+    "lon": 7.917,
+    "lat": -34.75
+   },
+   {
+    "lon": 6.483,
+    "lat": -36.667
+   },
+   {
+    "lon": 3.467,
+    "lat": -35.417
+   },
+   {
+    "lon": -0.433,
+    "lat": -35.283
+   },
+   {
+    "lon": -1.533,
+    "lat": -32.717
+   },
+   {
+    "lon": 5.383,
+    "lat": -31.967
+   }
+  ],
+  "dir": null,
+  "spd": null,
+  "chng": null,
+  "rawSigmet": "WSZA21 FAOR 221341\nFAJO SIGMET F01 VALID 221400/221800 FAOR-\nFAJO JOHANNESBURG OCEANIC FIR EMBD TS FCST WI\nS3158 E00523 - S3445 E00755 - S3640 E00629 - S3525 E00328 -\nS3517 W00026 - S3243 W00132 TOP FL320="
+ },
+ {
+  "icaoId": "FAOR",
+  "firId": "FAJO",
+  "firName": "FAJO JOHANNESBURG OCEANIC",
+  "receiptTime": "2026-11-22T13:51:29.607Z",
+  "validTimeFrom": 1795356000,
+  "validTimeTo": 1795370400,
+  "seriesId": "G01",
+  "hazard": "TS",
+  "qualifier": "EMBD",
+  "base": null,
+  "top": 32000,
+  "geom": "AREA",
+  "coords": [
+   {
+    "lon": 39.217,
+    "lat": -31.25
+   },
+   {
+    "lon": 45.367,
+    "lat": -34.017
+   },
+   {
+    "lon": 53.2,
+    "lat": -40.267
+   },
+   {
+    "lon": 53.033,
+    "lat": -44.133
+   },
+   {
+    "lon": 48.667,
+    "lat": -42.917
+   },
+   {
+    "lon": 45.017,
+    "lat": -40.567
+   },
+   {
+    "lon": 38.583,
+    "lat": -38.033
+   },
+   {
+    "lon": 38.133,
+    "lat": -35.867
+   },
+   {
+    "lon": 37.933,
+    "lat": -33.467
+   },
+   {
+    "lon": 36.683,
+    "lat": -32.067
+   },
+   {
+    "lon": 39.217,
+    "lat": -31.25
+   }
+  ],
+  "dir": null,
+  "spd": null,
+  "chng": null,
+  "rawSigmet": "WSZA21 FAOR 221342\nFAJO SIGMET G01 VALID 221400/221800 FAOR-\nFAJO JOHANNESBURG OCEANIC FIR EMBD TS FCST WI\nS3115 E03913 - S3401 E04522 - S4016 E05312 - S4408 E05302 -\nS4255 E04840 - S4034 E04501 - S3802 E03835 - S3552 E03808 -\nS3328 E03756 - S3204 E03641 TOP FL320="
+ }
+]
