@@ -40,7 +40,7 @@ Rules that follow:
     "not_consulted": [{ "id": "faa.nms.notam", "reason": "not_enabled" }]
   },
   "completeness": {
-    "status": "complete",                         // complete | degraded | incomplete
+    "status": "incomplete",                       // complete | degraded | incomplete (any not_consulted entry => incomplete)
     "issues": [{
       "code": "GEOMETRY_UNAVAILABLE",
       "severity": "warning",                      // info | warning | critical
