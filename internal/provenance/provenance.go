@@ -69,13 +69,14 @@ const (
 	ResultTruncated      Code = "RESULT_TRUNCATED"
 	SourceNotEnabled     Code = "SOURCE_NOT_ENABLED"
 	ClockSkew            Code = "CLOCK_SKEW"
+	AltitudeAssumed      Code = "ALTITUDE_ASSUMED"
 )
 
 var knownCodes = map[Code]bool{
 	SourceUnavailable: true, StaleData: true, UpstreamError: true, ParseFailed: true,
 	GeometryUnavailable: true, GeometryPartial: true, GeometryNotArea: true,
 	AltitudeUnknown: true, ScheduleUnevaluable: true, UpstreamFilterIgnore: true,
-	UndocumentedSource: true, ResultTruncated: true, SourceNotEnabled: true, ClockSkew: true,
+	UndocumentedSource: true, ResultTruncated: true, SourceNotEnabled: true, ClockSkew: true, AltitudeAssumed: true,
 }
 
 // Source describes one official upstream consulted for a response.

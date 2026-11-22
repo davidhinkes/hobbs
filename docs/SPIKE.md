@@ -22,6 +22,17 @@ Base: `https://aviationweather.gov/api/data/<name>?format=json`
 - `gairmet?format=geojson` also works and gives proper GeoJSON geometry.
 - Every item includes the raw official text (`rawAirSigmet`, `rawSigmet`, `rawText`), so provenance is easy. `gairmet` has no raw text.
 
+### Added while building the AWC adapter (verified against live feeds)
+
+- **Empty results are HTTP 204 with an empty body**, not `[]`. A bad parameter gives 400 with `{"status":"error","error":...}`; an unknown feed gives 404. A 200 with an empty body is therefore *not* how AWC says "nothing"; the adapter treats it as a failure.
+- **Multi-part areas:** `isigmet` uses `geom: "AREAS"` with `coords` as a nested list of rings (7 of 160 records at the time). `coords` is otherwise a flat list of points.
+- **Extended longitudes:** antimeridian-crossing features carry longitudes beyond 180 (e.g. 196.333) so each ring stays continuous. Kept as published (unwrapped); geometry code must handle it.
+- **Altitudes have no stated datum** in any feed. Interpreted as feet (hundreds of feet for G-AIRMET), shown as a flight level at or above 18,000 ft. Every snapshot reports this as `ALTITUDE_ASSUMED`.
+- **`isigmet` base 0 means SFC** (official text of WAAA 14 reads "SFC/FL070" while the record has `base: 0`). A null base is unknown.
+- **G-AIRMET `base: "FZL"`** means the freezing level, which has no fixed height; kept unknown with the reference preserved in `details`.
+- **G-AIRMET windows:** `validTime` to `expireTime` (= validTime + 3h) per forecast-hour snapshot.
+- **Sloping limits** (`altitudeLow1/2`, `altitudeHi1/2`): the adapter takes the widest extent so a boundary is never understated.
+
 ## FAA TFRs (tfr.faa.gov) — undocumented
 
 - `GET /tfrapi/getTfrList` — 47 TFRs, JSON, `Cache-Control: no-cache`. Fields: `notam_id`, `facility`, `state`, `type`, `description`, `mod_date`, `mod_abs_time`, `is_new`, `gid`. **No geometry, no altitudes, no dates beyond the free-text description.**

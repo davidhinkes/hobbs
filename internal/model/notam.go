@@ -61,11 +61,20 @@ type LatLon struct {
 	Lon float64 `json:"lon"`
 }
 
-// Geometry is a spatial extent: a ring (polygon), or a circle.
+// Geometry is a spatial extent: a closed ring (polygon), several rings
+// (a multi-part area), an open line, or a circle. Exactly one form is set. A
+// line has no inside and must not be treated as an area.
+//
+// Longitudes are as the upstream published them. For features that cross the
+// antimeridian that can be outside [-180, 180] (e.g. 196.3 for 163.7W): the
+// unwrapped form keeps each ring continuous, and geometry code must account
+// for it.
 type Geometry struct {
-	Ring     []LatLon `json:"ring,omitempty"`
-	Center   *LatLon  `json:"center,omitempty"`
-	RadiusNM *float64 `json:"radius_nm,omitempty"`
+	Ring     []LatLon   `json:"ring,omitempty"`
+	Rings    [][]LatLon `json:"rings,omitempty"`
+	Line     []LatLon   `json:"line,omitempty"`
+	Center   *LatLon    `json:"center,omitempty"`
+	RadiusNM *float64   `json:"radius_nm,omitempty"`
 }
 
 // Validate checks the invariants every NOTAM must satisfy before it is

@@ -1,0 +1,170 @@
+[
+ {
+  "icaoId": "NZKL",
+  "firId": "NZZO",
+  "firName": "NZZO AUCKLAND OCEANIC",
+  "receiptTime": "2026-11-22T14:58:57.640Z",
+  "validTimeFrom": 1795359480,
+  "validTimeTo": 1795373880,
+  "seriesId": "22",
+  "hazard": "TURB",
+  "qualifier": "SEV",
+  "base": 20000,
+  "top": 30000,
+  "geom": "AREAS",
+  "coords": [
+   [
+    {
+     "lon": 180,
+     "lat": -72.084
+    },
+    {
+     "lon": 180,
+     "lat": -73.931
+    },
+    {
+     "lon": 174.667,
+     "lat": -74.333
+    },
+    {
+     "lon": 180,
+     "lat": -72.084
+    }
+   ],
+   [
+    {
+     "lon": 180,
+     "lat": -72.084
+    },
+    {
+     "lon": 180,
+     "lat": -73.931
+    },
+    {
+     "lon": 183.5,
+     "lat": -73.667
+    },
+    {
+     "lon": 196.333,
+     "lat": -66.167
+    },
+    {
+     "lon": 195.833,
+     "lat": -58.833
+    },
+    {
+     "lon": 188.5,
+     "lat": -68.5
+    },
+    {
+     "lon": 180,
+     "lat": -72.084
+    }
+   ]
+  ],
+  "dir": "E",
+  "spd": "20",
+  "chng": "NC",
+  "rawSigmet": "WSPS21 NZKL 221456\nNZZO SIGMET 22 VALID 221458/221858 NZKL-\nNZZO AUCKLAND OCEANIC FIR SEV TURB FCST WI S7420 E17440 - S6830\nW17130 - S5850 W16410 - S6610 W16340 - S7340 W17630 - S7420 E17440\nFL200/300 MOV E 20KT NC="
+ },
+ {
+  "icaoId": "SBGL",
+  "firId": "SBRE",
+  "firName": "SBRE RECIFE",
+  "receiptTime": "2026-11-22T15:23:40.006Z",
+  "validTimeFrom": 1795361400,
+  "validTimeTo": 1795375800,
+  "seriesId": "39",
+  "hazard": "ICE",
+  "qualifier": "SEV",
+  "base": 14000,
+  "top": 24000,
+  "geom": "AREAS",
+  "coords": [
+   [
+    {
+     "lon": -38.71,
+     "lat": -19.973
+    },
+    {
+     "lon": -38.33,
+     "lat": -19.75
+    },
+    {
+     "lon": -38.098,
+     "lat": -19.445
+    },
+    {
+     "lon": -37.667,
+     "lat": -18.867
+    },
+    {
+     "lon": -37.669,
+     "lat": -18.866
+    },
+    {
+     "lon": -38.25,
+     "lat": -18.683
+    },
+    {
+     "lon": -38.217,
+     "lat": -18.618
+    },
+    {
+     "lon": -38.984,
+     "lat": -18.27
+    },
+    {
+     "lon": -39.05,
+     "lat": -19.65
+    },
+    {
+     "lon": -38.71,
+     "lat": -19.973
+    }
+   ],
+   [
+    {
+     "lon": -38.975,
+     "lat": -18.086
+    },
+    {
+     "lon": -37.78,
+     "lat": -15.63
+    },
+    {
+     "lon": -37.682,
+     "lat": -15.428
+    },
+    {
+     "lon": -41.15,
+     "lat": -10.767
+    },
+    {
+     "lon": -39.333,
+     "lat": -14.183
+    },
+    {
+     "lon": -41.233,
+     "lat": -15.15
+    },
+    {
+     "lon": -41.083,
+     "lat": -15.083
+    },
+    {
+     "lon": -38.95,
+     "lat": -17.567
+    },
+    {
+     "lon": -38.975,
+     "lat": -18.086
+    }
+   ]
+  ],
+  "dir": "E",
+  "spd": "10",
+  "chng": "NC",
+  "rawSigmet": "WSBZ23 SBGL 221525\nSBRE SIGMET 39 VALID 221530/221930 SBRE - SBRE RECIFE FIR SEV ICE FCST WI S1046 W04109 - S1411 W03920 - S1509 W04114 - S1505 W04105 - S1734 W03857 - S1939 W03903 - S1959 W03842 - S1947 W03821 - S1852 W03740 - S1841 W03815 - S1618 W03702 - S1046 W04109 FL140/240 MOV E 10KT NC="
+ }
+]
