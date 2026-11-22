@@ -103,7 +103,7 @@ Consequences: results are complete within the query, in a stable and documented 
 |---|---|---|---|
 | AIRMET (G-AIRMET), SIGMET, intl SIGMET, CWA | NOAA AWC Data API | public, no key | verified in spike |
 | TFRs | FAA `tfr.faa.gov` list + per-TFR XML | public, undocumented | verified in spike |
-| NOTAMs (US) | FAA NOTAM Management Service API | credentials by request (notams@faa.gov); hosted-redistribution terms must be confirmed | pending |
+| NOTAMs (US) | FAA NOTAM Management Service API | credentials by request: the FAA NMS page links "Request API Access" to 7-AWA-NAIMES@faa.gov (program questions: notams@faa.gov); hosted-redistribution terms must be confirmed | pending |
 
 ## 4. Architecture
 
@@ -146,7 +146,7 @@ Few tools, structured compact JSON, strict input validation with field-specific 
 
 ## 7. Open items
 
-- FAA NMS access and hosted-redistribution terms (email notams@faa.gov, as an individual hobby project).
+- FAA NMS access and hosted-redistribution terms (email 7-AWA-NAIMES@faa.gov per the FAA NMS page, cc notams@faa.gov, as an individual hobby project).
 - AWC documented rate limit and terms of use; FAA terms for `tfr.faa.gov` programmatic use.
 - Navaid dataset for `Frd` vertices, or flag those TFRs `GEOMETRY_PARTIAL`.
 - `Add`/`Replace`/`Delete` semantics in TFR XML updates.
