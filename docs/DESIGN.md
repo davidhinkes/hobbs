@@ -81,6 +81,22 @@ Conservative defaults: unknown altitude means "may apply at any altitude"; an un
 
 Single-maintainer hobby project. Callers are AI agents, not people. US focus; international SIGMETs included because AWC provides them. No auth beyond a bearer token per agent plus a global rate limit.
 
+### Scope: a data layer, not an advisor
+
+The server's job is to make official aviation data **easily available and correct**. Deciding what matters for a particular flight is left to the end user and their agent.
+
+In scope:
+- Fetching, parsing and normalizing official data into structured, queryable form, with raw text preserved.
+- Objective, deterministic queries: by location, area, route corridor, altitude, and time (active/effective at T). These are filters on stated facts (does this polygon intersect this corridor, is this window active at this time), not judgments of importance.
+- Being honest about gaps (§1).
+
+Non-goals:
+- Relevance scoring, ranking, prioritizing, summarizing or "you should care about this" guidance.
+- Suppressing or hiding records because they seem unimportant. Within a query's objective filters, everything matching is returned.
+- Flight-planning decisions or go/no-go advice.
+
+Consequences: results are complete within the query, in a stable and documented order (e.g. by effective time), and carry source IDs, raw text and structured fields so a downstream agent can do its own reasoning. Where we cannot evaluate a record against a filter (no geometry, unknown altitude or schedule), it is **included and flagged**, not excluded.
+
 ## 3. Sources
 
 | Need | Source | Access | Status |
