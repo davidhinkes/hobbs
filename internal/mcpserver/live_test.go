@@ -27,7 +27,7 @@ func TestLiveStdio(t *testing.T) {
 	defer cancel()
 	args := []string{}
 	if _, _, ok := nms.CredentialsFromEnv(); ok {
-		args = append(args, "-nms", "staging")
+		args = append(args, "-nms-url", nms.StagingHost)
 	}
 	cs, err := mcp.NewClient(&mcp.Implementation{Name: "live", Version: "0"}, nil).Connect(ctx, &mcp.CommandTransport{Command: exec.Command(bin, args...)}, nil)
 	if err != nil {

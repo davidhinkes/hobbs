@@ -27,28 +27,28 @@ go build -o hobbs ./cmd/hobbs
 ./hobbs
 
 # with NOTAMs from the FAA NMS-API staging environment:
-HOBBS_NMS_CLIENT_ID=... HOBBS_NMS_CLIENT_SECRET=... ./hobbs -nms staging
+HOBBS_NMS_CLIENT_ID=... HOBBS_NMS_CLIENT_SECRET=... ./hobbs -nms-url https://api-staging.cgifederal-aim.com
 
 # hosted over Streamable HTTP (requires at least one bearer token):
-HOBBS_TOKENS=<long-random-token> HOBBS_NMS_CLIENT_ID=... HOBBS_NMS_CLIENT_SECRET=... ./hobbs -http :8080 -nms staging
+HOBBS_TOKENS=<long-random-token> HOBBS_NMS_CLIENT_ID=... HOBBS_NMS_CLIENT_SECRET=... ./hobbs -http :8080 -nms-url https://api-staging.cgifederal-aim.com
 ```
 
 | Flag | Default | Meaning |
 |---|---|---|
 | `-http` | (stdio) | Listen address for Streamable HTTP, e.g. `:8080`; on Railway use `-http :$PORT` |
-| `-airworthy` | `false` | Declares responses usable for flight planning and navigation. By default every response says `"airworthy": false`, carries a `NOT_AIRWORTHY` warning (so nothing reads as complete), and the tool descriptions say so. Refused with `-nms staging` |
-| `-nms` | `off` | NOTAM source: `off`, `staging` or `production` |
+| `-airworthy` | `false` | Declares responses usable for flight planning and navigation. By default every response says `"airworthy": false`, carries a `NOT_AIRWORTHY` warning (so nothing reads as complete), and the tool descriptions say so. Accepted only without `-nms-url` or with the FAA's production NMS-API URL (`https://api-nms.aim.faa.gov`); any other server, staging included, counts as test data |
+| `-nms-url` | (NOTAMs off) | NMS-API server for NOTAMs, scheme and host only. Staging is `https://api-staging.cgifederal-aim.com` |
 | `-rate` | `5` | HTTP only: global request rate limit, requests per second (bursts up to twice that); an error without `-http` |
 
 | Secret (environment only) | Needed for |
 |---|---|
 | `HOBBS_TOKENS` | `-http`: comma-separated bearer tokens, each at least 16 characters |
-| `HOBBS_NMS_CLIENT_ID`, `HOBBS_NMS_CLIENT_SECRET` | `-nms staging` or `-nms production` |
+| `HOBBS_NMS_CLIENT_ID`, `HOBBS_NMS_CLIENT_SECRET` | `-nms-url` |
 
 Example MCP client configuration (stdio):
 
 ```json
-{ "mcpServers": { "hobbs": { "command": "/path/to/hobbs", "args": ["-nms", "staging"], "env": { "HOBBS_NMS_CLIENT_ID": "...", "HOBBS_NMS_CLIENT_SECRET": "..." } } } }
+{ "mcpServers": { "hobbs": { "command": "/path/to/hobbs", "args": ["-nms-url", "https://api-staging.cgifederal-aim.com"], "env": { "HOBBS_NMS_CLIENT_ID": "...", "HOBBS_NMS_CLIENT_SECRET": "..." } } } }
 ```
 
 ## Develop
