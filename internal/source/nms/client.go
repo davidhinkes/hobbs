@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,7 +27,6 @@ const (
 	Authority = "NOTAM Management Service (NMS-API)"
 
 	maxBody = 64 << 20
-	maxRefs = 20
 	// tokenSkew refreshes a token this long before it expires.
 	tokenSkew = 60 * time.Second
 	// MaxRadiusNM is the largest radius the API accepts.
@@ -342,7 +340,7 @@ func (c *Client) Query(ctx context.Context, q Query) (source.Snapshot[model.Nota
 	if resp.StatusCode != http.StatusOK {
 		msg := envp.Message
 		if jsonErr != nil || msg == "" {
-			msg = truncate(string(body), 160)
+			msg = source.Truncate(string(body), 160)
 		}
 		return fail("HTTP %d: %s", resp.StatusCode, msg)
 	}
@@ -350,7 +348,7 @@ func (c *Client) Query(ctx context.Context, q Query) (source.Snapshot[model.Nota
 	case jsonErr != nil:
 		return fail("body is not JSON")
 	case envp.Status != "Success":
-		return fail("status %q: %s", envp.Status, truncate(envp.Message, 160))
+		return fail("status %q: %s", envp.Status, source.Truncate(envp.Message, 160))
 	case len(envp.Data) == 0 || string(envp.Data) == "null":
 		return fail("success response has no data field")
 	}
@@ -396,14 +394,14 @@ func (c *Client) build(snap *source.Snapshot[model.Notam], feats []json.RawMessa
 		a, n := parseFeature(raw)
 		if a.ID == "" {
 			// Undecodable or unidentifiable: keep a stub with the upstream JSON.
-			if len(n.issues) == 0 {
-				n.add("record has no identifier")
+			if len(n.Issues) == 0 {
+				n.Add("record has no identifier")
 			}
 			a = model.Notam{ID: fmt.Sprintf("%s#%d", SourceID, i), RawText: string(raw), RawFormat: model.RawUpstreamJSON,
 				Lower: model.Unknown(), Upper: model.Unknown()}
 		}
-		a.ParseIssues = n.issues
-		if len(n.issues) > 0 {
+		a.ParseIssues = n.Issues
+		if len(n.Issues) > 0 {
 			parseFail = append(parseFail, a.ID)
 		}
 		if a.Geometry == nil {
@@ -423,7 +421,7 @@ func (c *Client) build(snap *source.Snapshot[model.Notam], feats []json.RawMessa
 			// of the upstream JSON rather than dropped.
 			a = model.Notam{ID: fmt.Sprintf("%s#%d", SourceID, i), RawText: string(raw), RawFormat: model.RawUpstreamJSON,
 				Lower: model.Unknown(), Upper: model.Unknown(),
-				ParseIssues: append(n.issues, "record failed validation: "+err.Error())}
+				ParseIssues: append(n.Issues, "record failed validation: "+err.Error())}
 			parseFail = append(parseFail, a.ID)
 		}
 		snap.Items = append(snap.Items, a)
@@ -433,25 +431,13 @@ func (c *Client) build(snap *source.Snapshot[model.Notam], feats []json.RawMessa
 	}
 	snap.Source.RecordsReturned = len(snap.Items)
 
-	add := func(code provenance.Code, sev provenance.Severity, ids []string, msg string) {
-		if len(ids) == 0 {
-			return
-		}
-		sort.Strings(ids)
-		refs := ids
-		if len(refs) > maxRefs {
-			refs = refs[:maxRefs]
-			msg += fmt.Sprintf(" (first %d of %d listed)", maxRefs, len(ids))
-		}
-		snap.Issues = append(snap.Issues, provenance.Issue{Code: code, Severity: sev, Source: SourceID, Message: msg, Refs: refs})
-	}
-	add(provenance.ParseFailed, provenance.Warning, parseFail,
+	snap.Issues = source.AppendIssue(snap.Issues, SourceID, provenance.ParseFailed, provenance.Warning, parseFail,
 		fmt.Sprintf("%d NOTAM(s) had fields that could not be parsed; they are included, flagged in parse_issues", len(parseFail)))
-	add(provenance.GeometryUnavailable, provenance.Warning, noGeom,
+	snap.Issues = source.AppendIssue(snap.Issues, SourceID, provenance.GeometryUnavailable, provenance.Warning, noGeom,
 		fmt.Sprintf("%d NOTAM(s) have no usable geometry as published", len(noGeom)))
-	add(provenance.ScheduleUnevaluable, provenance.Warning, sched,
+	snap.Issues = source.AppendIssue(snap.Issues, SourceID, provenance.ScheduleUnevaluable, provenance.Warning, sched,
 		fmt.Sprintf("%d NOTAM(s) carry a schedule that the server does not interpret; see the schedule field", len(sched)))
-	add(provenance.AltitudeUnknown, provenance.Info, noAlt,
+	snap.Issues = source.AppendIssue(snap.Issues, SourceID, provenance.AltitudeUnknown, provenance.Info, noAlt,
 		fmt.Sprintf("%d NOTAM(s) state no vertical limits", len(noAlt)))
 	if !c.cfg.Production {
 		snap.Issues = append(snap.Issues, provenance.Issue{
@@ -459,13 +445,6 @@ func (c *Client) build(snap *source.Snapshot[model.Notam], feats []json.RawMessa
 			Message: "data is from a non-production (staging) environment and may be test, stale or incomplete; do not rely on it for flight decisions",
 		})
 	}
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "..."
 }
 
 // Applied reports the filters this query forwards to the NMS-API, by the API's

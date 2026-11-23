@@ -3,7 +3,6 @@ package nms
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"math"
 	"regexp"
 	"strconv"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/davidhinkes/hobbs/internal/geo"
 	"github.com/davidhinkes/hobbs/internal/model"
+	"github.com/davidhinkes/hobbs/internal/source"
 )
 
 // flexString decodes a JSON string, number or bool into text; null is empty.
@@ -74,10 +74,8 @@ type rawFeature struct {
 	Geometry json.RawMessage `json:"geometry"`
 }
 
-// note collects problems found while parsing one record.
-type note struct{ issues []string }
-
-func (n *note) add(format string, a ...any) { n.issues = append(n.issues, fmt.Sprintf(format, a...)) }
+// note collects problems found while parsing one record (shared with the other adapters).
+type note = source.Notes
 
 func parseTime(s flexString, field string, n *note) *time.Time {
 	if s == "" {
@@ -85,7 +83,7 @@ func parseTime(s flexString, field string, n *note) *time.Time {
 	}
 	t, err := time.Parse(time.RFC3339Nano, string(s))
 	if err != nil {
-		n.add("%s %q is not a timestamp", field, s)
+		n.Add("%s %q is not a timestamp", field, s)
 		return nil
 	}
 	t = t.UTC()
@@ -149,13 +147,13 @@ func altitudes(r rawNotam, n *note) (lower, upper model.Altitude) {
 			if a, ok := parseLimit(string(limit)); ok {
 				return a
 			}
-			n.add("%s %q has no usable datum; falling back to Q-line levels", name, limit)
+			n.Add("%s %q has no usable datum; falling back to Q-line levels", name, limit)
 		}
 		if qline != "" {
 			if a, ok := parseQLineFL(string(qline), upper); ok {
 				return a
 			}
-			n.add("Q-line %s level %q not understood", name, qline)
+			n.Add("Q-line %s level %q not understood", name, qline)
 		}
 		return model.Unknown()
 	}
@@ -222,12 +220,12 @@ func circleGeometry(center model.Position, radiusNM *float64, n *note) (*model.G
 		return &g, nil
 	}
 	if *radiusNM >= noRadiusNM {
-		n.add("radius %v means no radius limit (whole region); no geometry derived", *radiusNM)
+		n.Add("radius %v means no radius limit (whole region); no geometry derived", *radiusNM)
 		return nil, nil
 	}
 	g, steps, err := geo.Circle(center, *radiusNM)
 	if err != nil {
-		n.add("circle could not be translated: %v", err)
+		n.Add("circle could not be translated: %v", err)
 		return nil, nil
 	}
 	d := &model.Derivation{Steps: steps}
@@ -246,7 +244,7 @@ func geometry(raw json.RawMessage, radiusNM *float64, n *note) (*model.Geometry,
 	}
 	var g geoJSON
 	if err := json.Unmarshal(raw, &g); err != nil {
-		n.add("geometry could not be decoded: %v", err)
+		n.Add("geometry could not be decoded: %v", err)
 		return nil, nil
 	}
 	parts := g.Geometries
@@ -260,12 +258,12 @@ func geometry(raw json.RawMessage, radiusNM *float64, n *note) (*model.Geometry,
 		case "Point":
 			var c []float64
 			if err := json.Unmarshal(p.Coords, &c); err != nil {
-				n.add("point geometry could not be decoded")
+				n.Add("point geometry could not be decoded")
 				return nil, nil
 			}
 			ll, ok := pos(c)
 			if !ok {
-				n.add("point geometry out of range")
+				n.Add("point geometry out of range")
 				return nil, nil
 			}
 			points = append(points, ll)
@@ -274,12 +272,12 @@ func geometry(raw json.RawMessage, radiusNM *float64, n *note) (*model.Geometry,
 			if p.Type == "Polygon" {
 				var poly [][][]float64
 				if err := json.Unmarshal(p.Coords, &poly); err != nil {
-					n.add("polygon geometry could not be decoded")
+					n.Add("polygon geometry could not be decoded")
 					return nil, nil
 				}
 				in = [][][][]float64{poly}
 			} else if err := json.Unmarshal(p.Coords, &in); err != nil {
-				n.add("multipolygon geometry could not be decoded")
+				n.Add("multipolygon geometry could not be decoded")
 				return nil, nil
 			}
 			for _, poly := range in {
@@ -289,36 +287,36 @@ func geometry(raw json.RawMessage, radiusNM *float64, n *note) (*model.Geometry,
 					for _, c := range r {
 						ll, ok := pos(c)
 						if !ok {
-							n.add("polygon coordinate out of range")
+							n.Add("polygon coordinate out of range")
 							return nil, nil
 						}
 						ring = append(ring, ll)
 					}
 					if len(ring) < 4 || ring[0] != ring[len(ring)-1] {
-						n.add("polygon is not a closed ring of at least 4 points")
+						n.Add("polygon is not a closed ring of at least 4 points")
 						return nil, nil
 					}
 					rings = append(rings, ring)
 				}
 				if len(rings) == 0 {
-					n.add("polygon has no rings")
+					n.Add("polygon has no rings")
 					return nil, nil
 				}
 				polys = append(polys, rings)
 			}
 		default:
-			n.add("unsupported geometry type %q", p.Type)
+			n.Add("unsupported geometry type %q", p.Type)
 			return nil, nil
 		}
 	}
 	switch {
 	case len(polys) > 0 && len(points) > 0:
-		n.add("geometry mixes points and polygons; not used")
+		n.Add("geometry mixes points and polygons; not used")
 		return nil, nil
 	case len(polys) > 0:
 		g, steps, err := geo.Polygons(polys)
 		if err != nil {
-			n.add("area could not be translated: %v", err)
+			n.Add("area could not be translated: %v", err)
 			return nil, nil
 		}
 		if len(steps) == 0 {
@@ -331,7 +329,7 @@ func geometry(raw json.RawMessage, radiusNM *float64, n *note) (*model.Geometry,
 		// A set of points with no area (e.g. the navaids of an airway restriction).
 		// Passed through exactly as published, duplicates included.
 		if radiusNM != nil {
-			n.add("a radius is stated for %d points; it is not applied", len(points))
+			n.Add("a radius is stated for %d points; it is not applied", len(points))
 		}
 		g := model.NewMultiPoint(points)
 		return &g, nil
@@ -354,7 +352,7 @@ func parseFeature(raw json.RawMessage) (model.Notam, *note) {
 	n := &note{}
 	var f rawFeature
 	if err := json.Unmarshal(raw, &f); err != nil {
-		return model.Notam{}, &note{issues: []string{"record could not be decoded: " + err.Error()}}
+		return model.Notam{}, &note{Issues: []string{"record could not be decoded: " + err.Error()}}
 	}
 	r := f.Properties.Core.Notam
 
@@ -379,19 +377,19 @@ func parseFeature(raw json.RawMessage) (model.Notam, *note) {
 	case "":
 		// Not stated by the source; left empty rather than guessed.
 	default:
-		n.add("unrecognized NOTAM type %q", t)
+		n.Add("unrecognized NOTAM type %q", t)
 	}
 
 	switch end := strings.TrimSpace(string(r.EffectiveEnd)); strings.ToUpper(end) {
 	case "PERM":
 		a.Permanent = true
 	case "":
-		n.add("effectiveEnd not stated")
+		n.Add("effectiveEnd not stated")
 	default:
 		a.EffectiveTo = parseTime(flexString(end), "effectiveEnd", n)
 	}
 	if a.EffectiveFrom == nil && r.EffectiveStart == "" {
-		n.add("effectiveStart not stated")
+		n.Add("effectiveStart not stated")
 	}
 
 	a.Lower, a.Upper = altitudes(r, n)
@@ -401,7 +399,7 @@ func parseFeature(raw json.RawMessage) (model.Notam, *note) {
 		if v, err := strconv.ParseFloat(string(r.Radius), 64); err == nil && v >= 0 {
 			radius = &v
 		} else {
-			n.add("radius %q not understood", r.Radius)
+			n.Add("radius %q not understood", r.Radius)
 		}
 	}
 	var qCenter *model.Position
@@ -409,7 +407,7 @@ func parseFeature(raw json.RawMessage) (model.Notam, *note) {
 		if ll, ok := parseCoord(string(r.Coordinates)); ok {
 			qCenter = &ll
 		} else {
-			n.add("Q-line coordinates %q not understood", r.Coordinates)
+			n.Add("Q-line coordinates %q not understood", r.Coordinates)
 		}
 	}
 	a.Geometry, a.GeometryDerivation = geometry(f.Geometry, radius, n)
@@ -445,7 +443,7 @@ func parseFeature(raw json.RawMessage) (model.Notam, *note) {
 		a.RawText, a.RawFormat = a.Translations[0].Text, model.RawOfficialText
 	default:
 		a.RawText, a.RawFormat = string(raw), model.RawUpstreamJSON
-		n.add("no NOTAM text rendering supplied; upstream record kept verbatim")
+		n.Add("no NOTAM text rendering supplied; upstream record kept verbatim")
 	}
 	return a, n
 }

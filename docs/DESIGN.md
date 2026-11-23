@@ -83,10 +83,9 @@ Rules that follow:
     "issues": [{
       "code": "GEOMETRY_UNAVAILABLE",
       "severity": "warning",                      // info | warning | critical
-      "source": "faa.tfr",
-      "message": "12 TFRs are text-only and cannot be evaluated spatially.",
-      "affects": ["check_route"],
-      "refs": ["FDC 0/0367"]
+      "source": "faa.nms.notam",
+      "message": "6 NOTAM(s) have no usable geometry as published",
+      "refs": ["5/1156", "6/1714"]
     }]
   },
   "disclaimer": "Provided AS IS, no warranty. Best-effort copy; not FAA/NWS data as published; not endorsed. Advisory only."
@@ -150,10 +149,10 @@ Consequences: responses can be large, and the failure mode is visible (too much 
 
 ## 4. Architecture
 
-- **Go**, official MCP Go SDK (verify Streamable HTTP support), stdlib `net/http`, `log/slog`. Stdio for dev, Streamable HTTP for hosting.
+- **Go**, official MCP Go SDK (`github.com/modelcontextprotocol/go-sdk`), stdlib `net/http`, `log/slog`. Stdio for dev, Streamable HTTP for hosting.
 - **No cache to start.** Every tool call fetches from the source live. Caching, polling and a snapshot store are premature until we measure a need (upstream load, latency or rate limits). Until then `served_from` is always `live`, and the `STALE_DATA` and `SOURCE_UNAVAILABLE` machinery is simply not exercised. If we add a cache later it must keep the same provenance contract (retrieval time, age, `served_from`).
 - **Fetch whole feeds.** Upstream filters are unreliable (spike), and we do not replace them with our own. Only filters the source supports are forwarded (NMS-API); otherwise the full published set is returned.
-- **TFR adapter:** read the TFR list, then each TFR's detail XML; normalize into the shared record model with the raw XML kept. Geometry is translated only where it is stated plainly (§4a); everything else is flagged.
+- **TFR adapter (dormant: built and tested, not wired into any tool, because `tfr.faa.gov` blocks automated clients):** read the TFR list, then each TFR's detail XML; normalize into the shared record model with the raw XML kept. Geometry is translated only where it is stated plainly (§4a); everything else is flagged.
 
 ```
 cmd/hobbs/             main: wiring
@@ -215,15 +214,12 @@ Input errors come back as `isError` results with a message the agent can act on,
 - **Not presented as FAA data.** The NMS-API Terms of Service allow redistribution but say redistributed information may not be characterized as FAA data. The disclaimer states the data is a best-effort copy, not FAA/NWS data as published, and not endorsed. Sources are still named for provenance; confirm the attribution wording with the FAA if it becomes an issue.
 - Advisory only. The FAA briefing channels remain the legal standard.
 - NOTAM/TFR free text is untrusted: returned in a delimited `raw_text` field, never merged into summaries, and tool descriptions say it is data, not instructions.
-- Hosted: bearer token per agent, global rate limit so a runaway loop cannot exhaust upstream quotas, kill switch for the NOTAM adapter, `/healthz` reporting per-source freshness, and an external uptime alert for stale feeds.
+- Hosted: bearer token per agent and a global rate limit so a runaway loop cannot exhaust upstream quotas. NOTAMs are switched off simply by not configuring the NMS credentials (responses then say the source is not configured). `/healthz` only says the process is up; `source_status` checks the sources. An external uptime alert is still to do.
 - Credentials (NMS client id/secret) only in environment variables.
 
 ## 7. Open items
 
-- **TFRs, questions for the FAA** (ticket INC0036653, 7-AWA-NAIMES@faa.gov): (1) does NMS production publish TFR outlines (the NOTAM Team said in 2021 the geometry matches the TFR site), and if so in which format or filter? (2) why do 6 of the TFR site's 47 TFRs not appear in NMS staging, and will production have them? (3) may the TFR site's JSON/XML export be used programmatically, and if so how (it returns HTTP 403 to automated clients)? (4) is there a SWIM/SCDS digital-TFR service we may use?
-
-- FAA NMS access and hosted-redistribution terms (email 7-AWA-NAIMES@faa.gov per the FAA NMS page, cc notams@faa.gov, as an individual hobby project).
-- AWC documented rate limit and terms of use; FAA terms for `tfr.faa.gov` programmatic use.
-- TFR geometry: parse only what is stated plainly; navaid-relative (`Frd`) vertices stay unresolved and flagged `GEOMETRY_PARTIAL`.
-- `Add`/`Replace`/`Delete` semantics in TFR XML updates.
+- **TFRs: not pursued further** (decision, 2026-11-23). No official source we can use publishes TFR outlines (SPIKE.md); we work with what we have. TFR NOTAMs are available through `get_notams` as FDC NOTAMs with text and dates, and outlines can be cross-checked by eye on public sites. The dormant TFR adapter stays until we either find a usable source or delete it.
+- **NMS production.** Access so far is staging, granted on ticket INC0036653 with the FAA's Terms of Service; moving to production is a separate onboarding step with the NOTAM Service Center.
+- AWC documented rate limit and terms of use.
 - Hosting target (Railway vs. cheap VPS).

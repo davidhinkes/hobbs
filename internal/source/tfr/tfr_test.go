@@ -524,8 +524,8 @@ func TestParserRefusesWhatItCannotTranslateFaithfully(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(strings.Join(n.issues, " | "), tt.wantMsg) {
-				t.Errorf("issues = %v, want %q", n.issues, tt.wantMsg)
+			if !strings.Contains(strings.Join(n.Issues, " | "), tt.wantMsg) {
+				t.Errorf("issues = %v, want %q", n.Issues, tt.wantMsg)
 			}
 			for _, a := range tf.Areas {
 				if a.Geometry != nil {
@@ -539,8 +539,8 @@ func TestParserRefusesWhatItCannotTranslateFaithfully(t *testing.T) {
 	}
 	// A clean square is accepted, wound correctly, with positions as [lon, lat].
 	tf, n, _ := parse(t, doc(notBody(area("1", "")+merged("1", square("GRC", "100.0W", "99.0W")...), "UTC", "2026-11-01T00:00:00")))
-	if len(n.issues) != 0 || tf.Areas[0].Geometry == nil || tf.Areas[0].Geometry.Validate() != nil {
-		t.Fatalf("clean square: %v %+v", n.issues, tf.Areas[0].Geometry)
+	if len(n.Issues) != 0 || tf.Areas[0].Geometry == nil || tf.Areas[0].Geometry.Validate() != nil {
+		t.Fatalf("clean square: %v %+v", n.Issues, tf.Areas[0].Geometry)
 	}
 	if p := tf.Areas[0].Geometry.Polygons[0][0][0]; p != (model.Position{-100, 10}) {
 		t.Errorf("first vertex = %v", p)
@@ -552,8 +552,8 @@ func TestParserRefusesWhatItCannotTranslateFaithfully(t *testing.T) {
 	// The same square published clockwise is re-wound, and the derivation says so.
 	cw := []string{avx("GRC", "10.0N", "100.0W"), avx("GRC", "11.0N", "100.0W"), avx("GRC", "11.0N", "99.0W"), avx("GRC", "10.0N", "99.0W"), avx("GRC", "10.0N", "100.0W")}
 	tf, n, _ = parse(t, doc(notBody(area("1", "")+merged("1", cw...), "UTC", "2026-11-01T00:00:00")))
-	if d := tf.Areas[0].GeometryDerivation; len(n.issues) != 0 || d == nil || len(d.Steps) != 1 || d.Steps[0] != "ring_reoriented" {
-		t.Errorf("derivation = %+v issues=%v", d, n.issues)
+	if d := tf.Areas[0].GeometryDerivation; len(n.Issues) != 0 || d == nil || len(d.Steps) != 1 || d.Steps[0] != "ring_reoriented" {
+		t.Errorf("derivation = %+v issues=%v", d, n.Issues)
 	}
 	if err := tf.Areas[0].Geometry.Validate(); err != nil {
 		t.Error(err)
@@ -608,8 +608,8 @@ func TestAltitudeMapping(t *testing.T) {
 			if got.Datum != tt.want.Datum || (got.Value == nil) != (tt.want.Value == nil) || (got.Value != nil && *got.Value != *tt.want.Value) {
 				t.Errorf("= %+v, want %+v", got, tt.want)
 			}
-			if (len(n.issues) > 0) != tt.flagged {
-				t.Errorf("issues = %v, flagged want %v", n.issues, tt.flagged)
+			if (len(n.Issues) > 0) != tt.flagged {
+				t.Errorf("issues = %v, flagged want %v", n.Issues, tt.flagged)
 			}
 			if err := got.Validate(); err != nil {
 				t.Error(err)
@@ -649,15 +649,15 @@ func TestTimeZoneConversion(t *testing.T) {
 			case tt.want != "" && (got == nil || got.Format(time.RFC3339) != tt.want):
 				t.Errorf("= %v, want %s", got, tt.want)
 			}
-			if (len(n.issues) > 0) != tt.flagged {
-				t.Errorf("issues = %v, flagged want %v", n.issues, tt.flagged)
+			if (len(n.Issues) > 0) != tt.flagged {
+				t.Errorf("issues = %v, flagged want %v", n.Issues, tt.flagged)
 			}
 		})
 	}
 	// An unconvertible time keeps its raw value on the record.
 	tf, n, _ := parse(t, doc(notBody(area("1", ""), "MARS", "2026-11-01T00:00:00")))
-	if tf.Effective != nil || tf.EffectiveRaw != "2026-11-01T00:00:00" || tf.TimeZone != "MARS" || len(n.issues) == 0 {
-		t.Errorf("tfr = %+v issues=%v", tf, n.issues)
+	if tf.Effective != nil || tf.EffectiveRaw != "2026-11-01T00:00:00" || tf.TimeZone != "MARS" || len(n.Issues) == 0 {
+		t.Errorf("tfr = %+v issues=%v", tf, n.Issues)
 	}
 }
 
@@ -678,8 +678,8 @@ func TestHemisphereParsing(t *testing.T) {
 
 func TestTFRsWithoutAreasAreFlagged(t *testing.T) {
 	tf, n, err := parse(t, doc(`<NotUid><txtLocalName>x</txtLocalName></NotUid><txtDescrUSNS>!FDC 9/0001 TEXT</txtDescrUSNS>`))
-	if err != nil || !tf.DetailRetrieved || tf.RawText == "" || len(n.issues) == 0 || len(tf.Areas) != 0 {
-		t.Errorf("tf=%+v issues=%v err=%v", tf, n.issues, err)
+	if err != nil || !tf.DetailRetrieved || tf.RawText == "" || len(n.Issues) == 0 || len(tf.Areas) != 0 {
+		t.Errorf("tf=%+v issues=%v err=%v", tf, n.Issues, err)
 	}
 }
 
@@ -709,16 +709,16 @@ func TestRepeatedSingleValuedElementsAreFlagged(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(strings.Join(n.issues, " | "), tt.want) {
-				t.Errorf("issues = %v, want %q", n.issues, tt.want)
+			if !strings.Contains(strings.Join(n.Issues, " | "), tt.want) {
+				t.Errorf("issues = %v, want %q", n.Issues, tt.want)
 			}
 		})
 	}
 	// Elements that are expected to repeat do not trigger it.
 	multi := area("1", "<dayCode>Monday</dayCode><dayCode>Friday</dayCode>") + area("2", "")
 	tf, n, _ := parse(t, doc(notBody(multi, "UTC", "2026-11-01T00:00:00")+"<txtAddrPOCPhone>111</txtAddrPOCPhone><txtAddrPOCPhone>222</txtAddrPOCPhone>"))
-	if len(n.issues) != 0 {
-		t.Errorf("expected-multiple elements must not be flagged: %v", n.issues)
+	if len(n.Issues) != 0 {
+		t.Errorf("expected-multiple elements must not be flagged: %v", n.Issues)
 	}
 	if got := strings.Join(tf.Areas[0].DayCodes, ","); got != "Monday,Friday" {
 		t.Errorf("day codes = %q", got)

@@ -10,15 +10,15 @@ import (
 )
 
 // TestLive exercises the real NMS-API using NMS_HOST, NMS_CLIENT_ID,
-// NMS_CLIENT_SECRET (and NMS_ENV). It is skipped unless HOBBS_LIVE_NMS=1 so the
-// normal suite never needs credentials or the network.
+// NMS_CLIENT_SECRET (and NMS_ENV). It is skipped unless HOBBS_LIVE=1 and the
+// credentials are set, so the normal suite never needs either.
 func TestLive(t *testing.T) {
-	if os.Getenv("HOBBS_LIVE_NMS") != "1" {
-		t.Skip("set HOBBS_LIVE_NMS=1 (and NMS_* variables) to run against the NMS-API")
+	if os.Getenv("HOBBS_LIVE") != "1" {
+		t.Skip("set HOBBS_LIVE=1 (and NMS_* variables) to run against the NMS-API")
 	}
 	cfg, ok := ConfigFromEnv()
 	if !ok {
-		t.Fatal("NMS_HOST, NMS_CLIENT_ID and NMS_CLIENT_SECRET must be set")
+		t.Skip("NMS_HOST, NMS_CLIENT_ID and NMS_CLIENT_SECRET are not set")
 	}
 	c, err := NewClient(cfg)
 	if err != nil {

@@ -136,9 +136,7 @@ const (
 	geometryDoc = "Optional, default true. Set false to leave geometry out of each item to make the response much smaller; the response lists geometry under omitted_fields."
 )
 
-// shape applies the caller's explicit choices to a result: an optional limit
-// and an optional omission of geometry. It returns the issue to report when
-// items were omitted. Nothing here is the server's own judgment.
+// checkLimit validates a caller-chosen limit.
 func checkLimit(limit *int) error {
 	if limit != nil && (*limit < 1 || *limit > maxLimit) {
 		return fmt.Errorf("limit must be between 1 and %d", maxLimit)
@@ -146,10 +144,12 @@ func checkLimit(limit *int) error {
 	return nil
 }
 
-func truncationIssue(total, kept, limit int) provenance.Issue {
+// truncationIssue reports that a caller-chosen limit omitted items, so the
+// response can never read as complete.
+func truncationIssue(total, limit int) provenance.Issue {
 	return provenance.Issue{
 		Code: provenance.ResultTruncated, Severity: provenance.Warning,
-		Message: fmt.Sprintf("%d of %d items were omitted because the caller set limit=%d", total-kept, total, limit),
+		Message: fmt.Sprintf("%d of %d items were omitted because the caller set limit=%d", total-limit, total, limit),
 	}
 }
 

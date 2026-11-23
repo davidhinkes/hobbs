@@ -105,7 +105,7 @@ func notamsHandler(ctx context.Context, d Deps, in NotamsInput) (*mcp.CallToolRe
 	issues := snap.Issues
 	// The caller's explicit shaping choices.
 	if in.Limit != nil && len(data.NOTAMs) > *in.Limit {
-		issues = append(issues, truncationIssue(len(data.NOTAMs), *in.Limit, *in.Limit))
+		issues = append(issues, truncationIssue(len(data.NOTAMs), *in.Limit))
 		data.NOTAMs = data.NOTAMs[:*in.Limit]
 	}
 	if in.IncludeGeometry != nil && !*in.IncludeGeometry {

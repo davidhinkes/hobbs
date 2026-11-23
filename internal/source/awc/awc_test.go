@@ -434,7 +434,7 @@ func TestRefsAreCapped(t *testing.T) {
 	sb.WriteString("]")
 	snap := fetch(t, serve(t, 200, []byte(sb.String())).AirSigmet())
 	is := issue(snap, provenance.GeometryUnavailable)
-	if is == nil || len(is.Refs) != maxRefs || !strings.Contains(is.Message, "of 50") {
+	if is == nil || len(is.Refs) != source.MaxRefs || !strings.Contains(is.Message, "of 50") {
 		t.Errorf("issue = %+v", is)
 	}
 }

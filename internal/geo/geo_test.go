@@ -133,7 +133,7 @@ func TestCircleCrossingTheAntimeridian(t *testing.T) {
 		}
 		found := false
 		for _, s := range steps {
-			if s == StepAntimeridianCt {
+			if s == StepAntimeridianCut {
 				found = true
 			}
 		}
@@ -212,7 +212,7 @@ func TestNormalizeShiftsRingsWhollyBeyondTheAntimeridian(t *testing.T) {
 	if err != nil || len(polys) != 1 {
 		t.Fatalf("polys=%d err=%v", len(polys), err)
 	}
-	if len(steps) == 0 || steps[0] != StepAntimeridianSh {
+	if len(steps) == 0 || steps[0] != StepAntimeridianShift {
 		t.Errorf("steps = %v", steps)
 	}
 	min, max := lonRange(polys[0][0])
@@ -252,7 +252,7 @@ func TestNormalizeCutsStraddlingRingsAndConservesArea(t *testing.T) {
 			}
 			found := false
 			for _, s := range steps {
-				found = found || s == StepAntimeridianCt
+				found = found || s == StepAntimeridianCut
 			}
 			if !found {
 				t.Errorf("steps = %v", steps)

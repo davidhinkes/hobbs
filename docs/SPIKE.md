@@ -60,6 +60,8 @@ The TFR adapter (`internal/source/tfr`) was built and tested against captured fi
 - The TFR adapter cannot be used live from this client until the FAA agrees to it. Ask the FAA (the TFR site is run by the same NOTAM organization) whether and how automated access is permitted.
 - The authorized alternative already in hand is the NMS-API: TFRs are FDC NOTAMs, which NMS serves with structured fields and geometry (e.g. `classification=FDC`). That would need verifying against what the TFR site publishes before relying on it.
 
+**Update, later on 2026-11-23:** the same, unmodified adapter fetched the site successfully: 44 TFRs, 56 areas, every area with its published outline and no parse problems (12 TFRs text-only). So the 403 is intermittent or conditional, not a fixed rule. The endpoint is still undocumented and its access policy unstated, so this does not change the decision in DESIGN.md §7.
+
 ### Is there a sanctioned way to pull TFRs? (2026-11-23)
 
 Short answer: there is no documented public TFR API. What the FAA's own materials say:

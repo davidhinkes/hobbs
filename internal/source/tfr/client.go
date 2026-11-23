@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -36,7 +35,6 @@ const (
 
 	maxList   = 8 << 20
 	maxDetail = 4 << 20
-	maxRefs   = 20
 	// concurrency bounds simultaneous detail requests.
 	concurrency = 8
 )
@@ -230,15 +228,15 @@ func (c *Client) Fetch(ctx context.Context, f Filter) (source.Snapshot[model.TFR
 			if what == nil {
 				what = r.parse
 			}
-			r.note.add("detail document unavailable: %v; only the list entry is shown", what)
+			r.note.Add("detail document unavailable: %v; only the list entry is shown", what)
 		}
 		switch {
 		case r.fetch != nil:
 			fetchFail = append(fetchFail, t.ID)
-		case r.parse != nil || len(r.note.issues) > 0:
+		case r.parse != nil || len(r.note.Issues) > 0:
 			parseFail = append(parseFail, t.ID)
 		}
-		t.ParseIssues = r.note.issues
+		t.ParseIssues = r.note.Issues
 		if t.DetailRetrieved {
 			withGeom := 0
 			for _, a := range t.Areas {
@@ -271,42 +269,17 @@ func (c *Client) Fetch(ctx context.Context, f Filter) (source.Snapshot[model.TFR
 	}
 	snap.Source.RecordsReturned = len(snap.Items)
 
-	add := func(code provenance.Code, sev provenance.Severity, ids []string, msg string) {
-		if len(ids) == 0 {
-			return
-		}
-		ids = dedupe(ids)
-		refs := ids
-		if len(refs) > maxRefs {
-			refs = refs[:maxRefs]
-			msg += fmt.Sprintf(" (first %d of %d listed)", maxRefs, len(ids))
-		}
-		snap.Issues = append(snap.Issues, provenance.Issue{Code: code, Severity: sev, Source: SourceID, Message: msg, Refs: refs})
-	}
-	add(provenance.UpstreamError, provenance.Warning, fetchFail,
-		fmt.Sprintf("%d TFR detail document(s) could not be fetched; those TFRs show only their list entry", len(dedupe(fetchFail))))
-	add(provenance.ParseFailed, provenance.Warning, parseFail,
-		fmt.Sprintf("%d TFR(s) had fields that could not be parsed; they are included, flagged in parse_issues", len(dedupe(parseFail))))
-	add(provenance.GeometryUnavailable, provenance.Warning, noGeom,
-		fmt.Sprintf("%d TFR(s) publish no geometry (text-only); their restriction is described by raw_text", len(dedupe(noGeom))))
-	add(provenance.GeometryPartial, provenance.Warning, partGeom,
-		fmt.Sprintf("%d TFR(s) have some areas with no geometry", len(dedupe(partGeom))))
-	add(provenance.ScheduleUnevaluable, provenance.Warning, sched,
-		fmt.Sprintf("%d TFR(s) carry a schedule that the server does not interpret; see each area's schedules", len(dedupe(sched))))
-	add(provenance.AltitudeUnknown, provenance.Info, noAlt,
-		fmt.Sprintf("%d TFR(s) have an area with an unknown vertical limit", len(dedupe(noAlt))))
+	snap.Issues = source.AppendIssue(snap.Issues, SourceID, provenance.UpstreamError, provenance.Warning, fetchFail,
+		fmt.Sprintf("%d TFR detail document(s) could not be fetched; those TFRs show only their list entry", len(source.Unique(fetchFail))))
+	snap.Issues = source.AppendIssue(snap.Issues, SourceID, provenance.ParseFailed, provenance.Warning, parseFail,
+		fmt.Sprintf("%d TFR(s) had fields that could not be parsed; they are included, flagged in parse_issues", len(source.Unique(parseFail))))
+	snap.Issues = source.AppendIssue(snap.Issues, SourceID, provenance.GeometryUnavailable, provenance.Warning, noGeom,
+		fmt.Sprintf("%d TFR(s) publish no geometry (text-only); their restriction is described by raw_text", len(source.Unique(noGeom))))
+	snap.Issues = source.AppendIssue(snap.Issues, SourceID, provenance.GeometryPartial, provenance.Warning, partGeom,
+		fmt.Sprintf("%d TFR(s) have some areas with no geometry", len(source.Unique(partGeom))))
+	snap.Issues = source.AppendIssue(snap.Issues, SourceID, provenance.ScheduleUnevaluable, provenance.Warning, sched,
+		fmt.Sprintf("%d TFR(s) carry a schedule that the server does not interpret; see each area's schedules", len(source.Unique(sched))))
+	snap.Issues = source.AppendIssue(snap.Issues, SourceID, provenance.AltitudeUnknown, provenance.Info, noAlt,
+		fmt.Sprintf("%d TFR(s) have an area with an unknown vertical limit", len(source.Unique(noAlt))))
 	return snap, nil
-}
-
-func dedupe(ids []string) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, id := range ids {
-		if !seen[id] {
-			seen[id] = true
-			out = append(out, id)
-		}
-	}
-	sort.Strings(out)
-	return out
 }

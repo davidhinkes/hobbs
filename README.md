@@ -43,9 +43,8 @@ Example MCP client configuration (stdio):
 ## Develop
 
 ```sh
-go test ./...                                  # offline, uses captured fixtures in testdata/
-HOBBS_LIVE=1 go test ./internal/source/awc ./internal/mcpserver      # live NOAA (+ NMS if NMS_* are set)
-HOBBS_LIVE_NMS=1 go test ./internal/source/nms # live NMS
+go test ./...                 # offline, uses captured fixtures in testdata/
+HOBBS_LIVE=1 go test ./...    # also against the live sources (NOTAM tests run only if NMS_* are set)
 ```
 
 Design: `docs/DESIGN.md`. What the upstream services actually do: `docs/SPIKE.md`.

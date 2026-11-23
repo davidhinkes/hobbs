@@ -11,6 +11,7 @@ import (
 
 	"github.com/davidhinkes/hobbs/internal/geo"
 	"github.com/davidhinkes/hobbs/internal/model"
+	"github.com/davidhinkes/hobbs/internal/source"
 )
 
 // flightLevelFeet is the altitude at and above which AWC feet values are
@@ -24,10 +25,8 @@ type coord struct {
 	Lon *flexFloat `json:"lon"`
 }
 
-// note collects problems found while parsing one record.
-type note struct{ issues []string }
-
-func (n *note) add(format string, a ...any) { n.issues = append(n.issues, fmt.Sprintf(format, a...)) }
+// note collects problems found while parsing one record (shared with the other adapters).
+type note = source.Notes
 
 // ptr returns the time pointer or nil for an unset flexTime.
 func tptr(t *flexTime) *time.Time {
@@ -98,12 +97,12 @@ func positions(cs []coord, n *note, what string) ([]model.Position, bool) {
 	pts := make([]model.Position, 0, len(cs))
 	for i, c := range cs {
 		if c.Lat == nil || c.Lon == nil {
-			n.add("%s coordinate %d missing lat/lon", what, i)
+			n.Add("%s coordinate %d missing lat/lon", what, i)
 			return nil, false
 		}
 		lat, lon := float64(*c.Lat), float64(*c.Lon)
 		if lat < -90 || lat > 90 || lon < -maxAbsLon || lon > maxAbsLon {
-			n.add("%s coordinate %d out of range (%v, %v)", what, i, lat, lon)
+			n.Add("%s coordinate %d out of range (%v, %v)", what, i, lat, lon)
 			return nil, false
 		}
 		pts = append(pts, model.Position{lon, lat})
@@ -121,7 +120,7 @@ func isClosedRing(p []model.Position) bool { return len(p) >= 4 && p[0] == p[len
 // The derivation lists any translation applied (winding, antimeridian).
 func buildGeometry(cs coordSet, kind string, n *note) (*model.Geometry, *model.Derivation) {
 	if len(cs.rings) == 0 {
-		n.add("no coordinates")
+		n.Add("no coordinates")
 		return nil, nil
 	}
 	rings := make([][]model.Position, 0, len(cs.rings))
@@ -136,31 +135,31 @@ func buildGeometry(cs coordSet, kind string, n *note) (*model.Geometry, *model.D
 		polys := make([][][]model.Position, 0, len(rings))
 		for _, r := range rings {
 			if !isClosedRing(r) {
-				n.add("area has a part that is not a closed ring of at least 4 points (%d points)", len(r))
+				n.Add("area has a part that is not a closed ring of at least 4 points (%d points)", len(r))
 				return nil, nil
 			}
 			polys = append(polys, [][]model.Position{r})
 		}
 		g, steps, err := geo.Polygons(polys)
 		if err != nil {
-			n.add("area could not be translated: %v", err)
+			n.Add("area could not be translated: %v", err)
 			return nil, nil
 		}
 		return &g, derivation(steps)
 	}
 	line := func(why string) (*model.Geometry, *model.Derivation) {
 		if cs.nested || len(rings[0]) < 2 {
-			n.add("line must be a single list of at least 2 points")
+			n.Add("line must be a single list of at least 2 points")
 			return nil, nil
 		}
 		for _, p := range rings[0] {
 			if p[0] < -180 || p[0] > 180 {
-				n.add("line crosses the antimeridian; not represented")
+				n.Add("line crosses the antimeridian; not represented")
 				return nil, nil
 			}
 		}
 		if why != "" {
-			n.add("%s", why)
+			n.Add("%s", why)
 		}
 		g := model.NewLineString(rings[0])
 		return &g, nil
@@ -171,13 +170,13 @@ func buildGeometry(cs coordSet, kind string, n *note) (*model.Geometry, *model.D
 		return line("")
 	case "AREA":
 		if cs.nested {
-			n.add("geometry type AREA but coordinates are multi-part")
+			n.Add("geometry type AREA but coordinates are multi-part")
 			return nil, nil
 		}
 		return areas()
 	case "AREAS":
 		if !cs.nested {
-			n.add("geometry type AREAS but coordinates are a single list")
+			n.Add("geometry type AREAS but coordinates are a single list")
 			return nil, nil
 		}
 		return areas()
@@ -189,10 +188,10 @@ func buildGeometry(cs coordSet, kind string, n *note) (*model.Geometry, *model.D
 			// Open path with no stated type: report it as a line, not an area.
 			return line("geometry type not stated and path is not closed; treated as a line")
 		}
-		n.add("cannot determine geometry from %d point(s)", len(rings[0]))
+		n.Add("cannot determine geometry from %d point(s)", len(rings[0]))
 		return nil, nil
 	default:
-		n.add("unrecognized geometry type %q", kind)
+		n.Add("unrecognized geometry type %q", kind)
 		return nil, nil
 	}
 }
@@ -206,7 +205,7 @@ func derivation(steps []string) *model.Derivation {
 
 func orderWindow(a *model.Advisory, n *note) {
 	if a.ValidFrom != nil && a.ValidTo != nil && a.ValidTo.Before(*a.ValidFrom) {
-		n.add("valid_to precedes valid_from; validity window discarded")
+		n.Add("valid_to precedes valid_from; validity window discarded")
 		a.ValidFrom, a.ValidTo = nil, nil
 	}
 }
@@ -266,7 +265,7 @@ func parseAirSigmet(src string, raw json.RawMessage) (model.Advisory, *note) {
 	n := &note{}
 	var r airSigmetRec
 	if err := json.Unmarshal(raw, &r); err != nil {
-		return model.Advisory{}, &note{issues: []string{"record could not be decoded: " + err.Error()}}
+		return model.Advisory{}, &note{Issues: []string{"record could not be decoded: " + err.Error()}}
 	}
 	kind := model.KindSIGMET
 	if strings.EqualFold(string(r.Type), "AIRMET") {
@@ -339,7 +338,7 @@ func gairmetAlt(s *flexString, n *note, field string) (model.Altitude, string) {
 	}
 	h, err := strconv.ParseFloat(v, 64)
 	if err != nil || h < 0 {
-		n.add("%s %q not understood", field, v)
+		n.Add("%s %q not understood", field, v)
 		return model.Unknown(), ""
 	}
 	return hundredsAlt(h), ""
@@ -349,7 +348,7 @@ func parseGAirmet(src string, raw json.RawMessage) (model.Advisory, *note) {
 	n := &note{}
 	var r gairmetRec
 	if err := json.Unmarshal(raw, &r); err != nil {
-		return model.Advisory{}, &note{issues: []string{"record could not be decoded: " + err.Error()}}
+		return model.Advisory{}, &note{Issues: []string{"record could not be decoded: " + err.Error()}}
 	}
 	id := fmt.Sprintf("G-AIRMET %s %s %s", r.Product, r.Tag, r.Hazard)
 	if r.ForecastHour != nil {
@@ -422,7 +421,7 @@ func parseIntlSigmet(src string, raw json.RawMessage) (model.Advisory, *note) {
 	n := &note{}
 	var r isigmetRec
 	if err := json.Unmarshal(raw, &r); err != nil {
-		return model.Advisory{}, &note{issues: []string{"record could not be decoded: " + err.Error()}}
+		return model.Advisory{}, &note{Issues: []string{"record could not be decoded: " + err.Error()}}
 	}
 	a := model.Advisory{
 		ID: strings.TrimSpace(string(r.ICAOID) + " " + string(r.SeriesID)), Kind: model.KindIntlSIGMET, Source: src,
@@ -476,7 +475,7 @@ func parseCWA(src string, raw json.RawMessage) (model.Advisory, *note) {
 	n := &note{}
 	var r cwaRec
 	if err := json.Unmarshal(raw, &r); err != nil {
-		return model.Advisory{}, &note{issues: []string{"record could not be decoded: " + err.Error()}}
+		return model.Advisory{}, &note{Issues: []string{"record could not be decoded: " + err.Error()}}
 	}
 	a := model.Advisory{
 		ID: strings.TrimSpace(string(r.CWSU) + " CWA " + string(r.SeriesID)), Kind: model.KindCWA, Source: src,

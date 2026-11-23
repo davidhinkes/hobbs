@@ -28,12 +28,12 @@ func toUTC(raw, zone, field string, n *note) *time.Time {
 	}
 	off, ok := zoneOffsets[strings.ToUpper(strings.TrimSpace(zone))]
 	if !ok {
-		n.add("%s time zone %q is not recognized; time not converted to UTC", field, zone)
+		n.Add("%s time zone %q is not recognized; time not converted to UTC", field, zone)
 		return nil
 	}
 	t, err := time.Parse(dateLayout, raw)
 	if err != nil {
-		n.add("%s time %q is not a timestamp", field, raw)
+		n.Add("%s time %q is not a timestamp", field, raw)
 		return nil
 	}
 	u := t.Add(-time.Duration(off) * time.Hour).UTC()

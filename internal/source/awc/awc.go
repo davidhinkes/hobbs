@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -34,8 +33,6 @@ const (
 	DefaultBaseURL = "https://aviationweather.gov/api/data"
 	// maxBody caps a response so a misbehaving upstream cannot exhaust memory.
 	maxBody = 32 << 20
-	// maxRefs caps how many record IDs one issue lists.
-	maxRefs = 20
 )
 
 // Source IDs used in provenance.
@@ -141,7 +138,7 @@ func (f *feed) Fetch(ctx context.Context) (source.Snapshot[model.Advisory], erro
 		// empty feed, not a failure.
 		return snap, nil
 	case resp.StatusCode != http.StatusOK:
-		return fail("HTTP %d: %s", resp.StatusCode, truncate(string(body), 200))
+		return fail("HTTP %d: %s", resp.StatusCode, source.Truncate(string(body), 200))
 	case len(strings.TrimSpace(string(body))) == 0:
 		// 200 with no body is not how AWC reports "no results" (that is 204),
 		// so do not treat it as an empty feed.
@@ -164,8 +161,8 @@ func (f *feed) Fetch(ctx context.Context) (source.Snapshot[model.Advisory], erro
 		if a.ID == "" || a.Kind == "" {
 			// Undecodable or unidentifiable record: keep it as a stub with the
 			// upstream JSON, never drop it.
-			if len(n.issues) == 0 {
-				n.add("record has no identifier")
+			if len(n.Issues) == 0 {
+				n.Add("record has no identifier")
 			}
 			a = model.Advisory{
 				ID: fmt.Sprintf("%s#%d", f.id, i), Kind: f.kind, Source: f.id,
@@ -175,7 +172,7 @@ func (f *feed) Fetch(ctx context.Context) (source.Snapshot[model.Advisory], erro
 		}
 		if a.RawText == "" {
 			a.RawText, a.RawFormat = string(raw), model.RawUpstreamJSON
-			n.add("official text missing; upstream record kept verbatim")
+			n.Add("official text missing; upstream record kept verbatim")
 		}
 		if c := seen[a.ID]; c > 0 {
 			seen[a.ID]++
@@ -183,8 +180,8 @@ func (f *feed) Fetch(ctx context.Context) (source.Snapshot[model.Advisory], erro
 		} else {
 			seen[a.ID] = 1
 		}
-		a.ParseIssues = n.issues
-		if len(n.issues) > 0 {
+		a.ParseIssues = n.Issues
+		if len(n.Issues) > 0 {
 			parseFail = append(parseFail, a.ID)
 		}
 		switch {
@@ -209,38 +206,17 @@ func (f *feed) Fetch(ctx context.Context) (source.Snapshot[model.Advisory], erro
 	}
 	snap.Source.RecordsReturned = len(snap.Items)
 
-	add := func(code provenance.Code, sev provenance.Severity, ids []string, msg string) {
-		if len(ids) == 0 {
-			return
-		}
-		sort.Strings(ids)
-		refs := ids
-		if len(refs) > maxRefs {
-			refs = refs[:maxRefs]
-			msg += fmt.Sprintf(" (first %d of %d listed)", maxRefs, len(ids))
-		}
-		snap.Issues = append(snap.Issues, provenance.Issue{
-			Code: code, Severity: sev, Source: f.id, Message: msg, Refs: refs,
-		})
-	}
-	add(provenance.ParseFailed, provenance.Warning, parseFail,
+	snap.Issues = source.AppendIssue(snap.Issues, f.id, provenance.ParseFailed, provenance.Warning, parseFail,
 		fmt.Sprintf("%d record(s) had fields that could not be parsed; they are included, flagged in parse_issues", len(parseFail)))
-	add(provenance.GeometryUnavailable, provenance.Warning, noGeom,
+	snap.Issues = source.AppendIssue(snap.Issues, f.id, provenance.GeometryUnavailable, provenance.Warning, noGeom,
 		fmt.Sprintf("%d record(s) have no usable geometry as published", len(noGeom)))
-	add(provenance.GeometryNotArea, provenance.Info, lines,
+	snap.Issues = source.AppendIssue(snap.Issues, f.id, provenance.GeometryNotArea, provenance.Info, lines,
 		fmt.Sprintf("%d record(s) are lines, not areas (e.g. freezing-level contours)", len(lines)))
-	add(provenance.AltitudeUnknown, provenance.Info, noAlt,
+	snap.Issues = source.AppendIssue(snap.Issues, f.id, provenance.AltitudeUnknown, provenance.Info, noAlt,
 		fmt.Sprintf("%d record(s) state no vertical limits", len(noAlt)))
 	snap.Issues = append(snap.Issues, provenance.Issue{
 		Code: provenance.AltitudeAssumed, Severity: provenance.Info, Source: f.id,
 		Message: "AWC states altitudes without a datum; interpreted as feet, shown as flight levels at or above 18,000 ft",
 	})
 	return snap, nil
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "..."
 }

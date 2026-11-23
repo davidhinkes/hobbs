@@ -17,9 +17,9 @@ import (
 
 // Step names recorded in model.Derivation.Steps.
 const (
-	StepReoriented     = "ring_reoriented"
-	StepAntimeridianSh = "antimeridian_shift"
-	StepAntimeridianCt = "antimeridian_cut"
+	StepReoriented        = "ring_reoriented"
+	StepAntimeridianShift = "antimeridian_shift"
+	StepAntimeridianCut   = "antimeridian_cut"
 	// StepDegenerateDrop: a part with zero area (collapsed to a point or a line)
 	// was dropped from a multi-part area. It has no region to lose; a part that
 	// is not degenerate is never dropped.
@@ -150,10 +150,10 @@ func NormalizePolygon(rings [][]model.Position) (polys [][][]model.Position, ste
 	case min >= -180 && max <= 180:
 		return [][][]model.Position{oriented(rings)}, steps, nil
 	case min >= 180:
-		steps = appendOnce(steps, StepAntimeridianSh)
+		steps = appendOnce(steps, StepAntimeridianShift)
 		return [][][]model.Position{oriented(shift(rings, -360))}, steps, nil
 	case max <= -180:
-		steps = appendOnce(steps, StepAntimeridianSh)
+		steps = appendOnce(steps, StepAntimeridianShift)
 		return [][][]model.Position{oriented(shift(rings, 360))}, steps, nil
 	}
 	if len(rings) > 1 {
@@ -174,7 +174,7 @@ func NormalizePolygon(rings [][]model.Position) (polys [][][]model.Position, ste
 	default:
 		return nil, nil, ErrTooWide
 	}
-	steps = appendOnce(steps, StepAntimeridianCt)
+	steps = appendOnce(steps, StepAntimeridianCut)
 	for _, part := range [][]model.Position{a, b} {
 		if part != nil {
 			polys = append(polys, oriented([][]model.Position{part}))

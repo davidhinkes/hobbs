@@ -120,7 +120,7 @@ func weatherHandler(ctx context.Context, d Deps, in WeatherInput) (*mcp.CallTool
 
 	// The caller's explicit shaping choices.
 	if in.Limit != nil && len(data.Advisories) > *in.Limit {
-		issues = append(issues, truncationIssue(len(data.Advisories), *in.Limit, *in.Limit))
+		issues = append(issues, truncationIssue(len(data.Advisories), *in.Limit))
 		data.Advisories = data.Advisories[:*in.Limit]
 	}
 	if in.IncludeGeometry != nil && !*in.IncludeGeometry {
@@ -135,9 +135,7 @@ func weatherHandler(ctx context.Context, d Deps, in WeatherInput) (*mcp.CallTool
 		returned[a.Source]++
 	}
 	for i := range sources {
-		if sources[i].RecordsInFeed > 0 || sources[i].HTTPStatus == 200 || sources[i].HTTPStatus == 204 {
-			sources[i].RecordsReturned = returned[sources[i].ID]
-		}
+		sources[i].RecordsReturned = returned[sources[i].ID]
 	}
 
 	env, err := provenance.New(data, now, sources, nil, issues)

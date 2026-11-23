@@ -47,29 +47,7 @@ func registerStatus(srv *mcp.Server, d Deps) {
 
 func statusHandler(ctx context.Context, d Deps) (*mcp.CallToolResult, any, error) {
 	now := d.Now().UTC()
-	type awcCheck struct {
-		id    string
-		fetch func() (provenance.Source, int, error)
-	}
-	checks := []awcCheck{
-		{awc.IDAirSigmet, func() (provenance.Source, int, error) {
-			s, e := d.AWC.AirSigmet().Fetch(ctx)
-			return s.Source, len(s.Items), e
-		}},
-		{awc.IDGAirmet, func() (provenance.Source, int, error) {
-			s, e := d.AWC.GAirmet().Fetch(ctx)
-			return s.Source, len(s.Items), e
-		}},
-		{awc.IDIntlSig, func() (provenance.Source, int, error) {
-			s, e := d.AWC.IntlSigmet().Fetch(ctx)
-			return s.Source, len(s.Items), e
-		}},
-		{awc.IDCWA, func() (provenance.Source, int, error) {
-			s, e := d.AWC.CWA().Fetch(ctx)
-			return s.Source, len(s.Items), e
-		}},
-	}
-	n := len(checks)
+	n := len(weatherFeeds)
 	total := n
 	if d.NMS != nil {
 		total++
@@ -80,13 +58,14 @@ func statusHandler(ctx context.Context, d Deps) (*mcp.CallToolResult, any, error
 	parallel(total, func(i int) {
 		start := time.Now()
 		if i < n {
-			s, count, err := checks[i].fetch()
-			st := SourceStatus{ID: checks[i].id, Authority: awc.Authority, Documentation: string(provenance.Documented),
-				Environment: "n/a", Status: "ok", HTTPStatus: s.HTTPStatus, RecordsInFeed: count, LatencyMS: time.Since(start).Milliseconds()}
+			feed := weatherFeeds[i].get(d.AWC)
+			snap, err := feed.Fetch(ctx)
+			st := SourceStatus{ID: feed.ID(), Authority: awc.Authority, Documentation: string(provenance.Documented),
+				Environment: "n/a", Status: "ok", HTTPStatus: snap.Source.HTTPStatus, RecordsInFeed: len(snap.Items), LatencyMS: time.Since(start).Milliseconds()}
 			if err != nil {
 				st.Status, st.Error, errs[i] = "error", err.Error(), err
 			}
-			statuses[i], srcs[i] = st, s
+			statuses[i], srcs[i] = st, snap.Source
 			return
 		}
 		code, err := d.NMS.Ping(ctx)

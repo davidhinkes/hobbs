@@ -12,6 +12,7 @@ import (
 
 	"github.com/davidhinkes/hobbs/internal/geo"
 	"github.com/davidhinkes/hobbs/internal/model"
+	"github.com/davidhinkes/hobbs/internal/source"
 )
 
 // ---- XML shapes (only the fields we use) ----
@@ -88,10 +89,8 @@ type xMerged struct {
 	} `xml:"Avx"`
 }
 
-// note collects problems found while parsing one TFR.
-type note struct{ issues []string }
-
-func (n *note) add(format string, a ...any) { n.issues = append(n.issues, fmt.Sprintf(format, a...)) }
+// note collects problems found while parsing one record (shared with the other adapters).
+type note = source.Notes
 
 // maxRingSpanDeg: a published outline spanning more longitude than this is
 // treated as an antimeridian crossing written with wrapped longitudes, which
@@ -207,7 +206,7 @@ func altitude(code, val, uom, which string, n *note) model.Altitude {
 	}
 	f, err := strconv.ParseFloat(val, 64)
 	if err != nil || f < 0 || math.IsNaN(f) || f != math.Trunc(f) {
-		n.add("%s limit %q is not a whole number", which, val)
+		n.Add("%s limit %q is not a whole number", which, val)
 		return model.Unknown()
 	}
 	v := int(f)
@@ -221,7 +220,7 @@ func altitude(code, val, uom, which string, n *note) model.Altitude {
 	case uom == "FT" && code == "HEI":
 		return model.AGL(v)
 	}
-	n.add("%s limit (%s %s %s) has no recognized datum; reported as unknown", which, code, val, uom)
+	n.Add("%s limit (%s %s %s) has no recognized datum; reported as unknown", which, code, val, uom)
 	return model.Unknown()
 }
 
@@ -231,17 +230,17 @@ func ring(m xMerged, n *note, areaID string) ([]model.Position, bool) {
 	pts := make([]model.Position, 0, len(m.Avx))
 	for i, v := range m.Avx {
 		if t := strings.ToUpper(clean(v.Type)); t != "GRC" {
-			n.add("area %s vertex %d has type %q, not a plain geodetic point", areaID, i, v.Type)
+			n.Add("area %s vertex %d has type %q, not a plain geodetic point", areaID, i, v.Type)
 			return nil, false
 		}
 		if d := strings.ToUpper(clean(v.Datum)); d != "WGE" && d != "" {
-			n.add("area %s vertex %d uses datum %q, not WGS84", areaID, i, v.Datum)
+			n.Add("area %s vertex %d uses datum %q, not WGS84", areaID, i, v.Datum)
 			return nil, false
 		}
 		lat, ok1 := parseHemi(v.Lat, true)
 		lon, ok2 := parseHemi(v.Lon, false)
 		if !ok1 || !ok2 {
-			n.add("area %s vertex %d (%q, %q) is not a valid position", areaID, i, v.Lat, v.Lon)
+			n.Add("area %s vertex %d (%q, %q) is not a valid position", areaID, i, v.Lat, v.Lon)
 			return nil, false
 		}
 		pts = append(pts, model.Position{lon, lat})
@@ -251,11 +250,11 @@ func ring(m xMerged, n *note, areaID string) ([]model.Position, bool) {
 		min, max = math.Min(min, p[0]), math.Max(max, p[0])
 	}
 	if len(pts) >= 4 && max-min > maxRingSpanDeg {
-		n.add("area %s outline spans %.0f degrees of longitude; looks like an antimeridian crossing written with wrapped longitudes, not translated", areaID, max-min)
+		n.Add("area %s outline spans %.0f degrees of longitude; looks like an antimeridian crossing written with wrapped longitudes, not translated", areaID, max-min)
 		return nil, false
 	}
 	if len(pts) < 4 || pts[0] != pts[len(pts)-1] {
-		n.add("area %s outline is not a closed ring of at least 4 points (%d points)", areaID, len(pts))
+		n.Add("area %s outline is not a closed ring of at least 4 points (%d points)", areaID, len(pts))
 		return nil, false
 	}
 	return pts, true
@@ -279,7 +278,7 @@ func parseDetail(raw []byte, t *model.TFR, n *note) error {
 
 	t.DetailRetrieved = true
 	for _, r := range repeatedSingles(raw) {
-		n.add("%s; only the last value is read", r)
+		n.Add("%s; only the last value is read", r)
 	}
 	t.Purpose = clean(x.Purpose)
 	t.Regulation = clean(x.Tfr.Regulation)
@@ -350,7 +349,7 @@ func parseDetail(raw []byte, t *model.TFR, n *note) error {
 				if pts, ok := ring(m, n, area.ID); ok {
 					g, steps, err := geo.Polygons([][][]model.Position{{pts}})
 					if err != nil {
-						n.add("area %s outline could not be translated: %v", area.ID, err)
+						n.Add("area %s outline could not be translated: %v", area.ID, err)
 					} else {
 						area.Geometry = &g
 						if len(steps) > 0 {
@@ -363,15 +362,15 @@ func parseDetail(raw []byte, t *model.TFR, n *note) error {
 		}
 		for id := range outlines {
 			if !used[id] {
-				n.add("outline for area %q has no matching area; not used", id)
+				n.Add("outline for area %q has no matching area; not used", id)
 			}
 		}
 	}
 	if len(x.Tfr.Groups) == 0 {
-		n.add("no area groups published")
+		n.Add("no area groups published")
 	}
 	if t.RawText == "" {
-		n.add("no NOTAM text rendering supplied")
+		n.Add("no NOTAM text rendering supplied")
 	}
 	return nil
 }
