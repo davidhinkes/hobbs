@@ -106,6 +106,7 @@ func newSite(t *testing.T, list []byte, details map[string]detail) (*site, *Clie
 	}))
 	t.Cleanup(s.srv.Close)
 	c := New()
+	c.Enabled = true
 	c.BaseURL = s.srv.URL
 	c.Now = func() time.Time { return fixedNow }
 	return s, c
@@ -321,6 +322,7 @@ func TestListFailuresAreErrors(t *testing.T) {
 	url := srv.URL
 	srv.Close()
 	c := New()
+	c.Enabled = true
 	c.BaseURL = url
 	c.Now = func() time.Time { return fixedNow }
 	if snap, err := c.Fetch(context.Background(), Filter{}); !errors.Is(err, ErrUpstream) || snap.Source.RetrievedAt.IsZero() {
@@ -735,5 +737,24 @@ func TestRepeatedSingleValuedElementsAreFlagged(t *testing.T) {
 				t.Errorf("%s: %s", x.ID, is)
 			}
 		}
+	}
+}
+
+// Off by default: a client nobody enabled never touches the network.
+func TestDisabledByDefault(t *testing.T) {
+	s, _ := fixtureSite(t)
+	c := New() // not enabled
+	c.BaseURL = s.srv.URL
+	snap, err := c.Fetch(context.Background(), Filter{})
+	if !errors.Is(err, ErrDisabled) || len(snap.Items) != 0 {
+		t.Fatalf("err = %v, items = %d", err, len(snap.Items))
+	}
+	n := 0
+	s.requests.Range(func(_, _ any) bool { n++; return true })
+	if n != 0 {
+		t.Errorf("a disabled client made %d request(s)", n)
+	}
+	if _, err := c.Source().Fetch(context.Background()); !errors.Is(err, ErrDisabled) {
+		t.Errorf("Source(): %v", err)
 	}
 }

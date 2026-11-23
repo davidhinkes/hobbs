@@ -152,7 +152,7 @@ Consequences: responses can be large, and the failure mode is visible (too much 
 - **Go**, official MCP Go SDK (`github.com/modelcontextprotocol/go-sdk`), stdlib `net/http`, `log/slog`. Stdio for dev, Streamable HTTP for hosting.
 - **No cache to start.** Every tool call fetches from the source live. Caching, polling and a snapshot store are premature until we measure a need (upstream load, latency or rate limits). Until then `served_from` is always `live`, and the `STALE_DATA` and `SOURCE_UNAVAILABLE` machinery is simply not exercised. If we add a cache later it must keep the same provenance contract (retrieval time, age, `served_from`).
 - **Fetch whole feeds.** Upstream filters are unreliable (spike), and we do not replace them with our own. Only filters the source supports are forwarded (NMS-API); otherwise the full published set is returned.
-- **TFR adapter (dormant: built and tested, not wired into any tool, because `tfr.faa.gov` blocks automated clients):** read the TFR list, then each TFR's detail XML; normalize into the shared record model with the raw XML kept. Geometry is translated only where it is stated plainly (§4a); everything else is flagged.
+- **TFR adapter (off: built and tested, not wired into any tool; a client refuses to fetch unless explicitly enabled, and its live test needs `HOBBS_ENABLE_TFR=1`):** read the TFR list, then each TFR's detail XML; normalize into the shared record model with the raw XML kept. Geometry is translated only where it is stated plainly (§4a); everything else is flagged.
 
 ```
 cmd/hobbs/             main: wiring
@@ -219,7 +219,7 @@ Input errors come back as `isError` results with a message the agent can act on,
 
 ## 7. Open items
 
-- **TFRs: not pursued further** (decision, 2026-11-23). No official source we can use publishes TFR outlines (SPIKE.md); we work with what we have. TFR NOTAMs are available through `get_notams` as FDC NOTAMs with text and dates, and outlines can be cross-checked by eye on public sites. The dormant TFR adapter stays until we either find a usable source or delete it.
+- **TFRs: not pursued further** (decision, 2026-11-23). No official source we can use publishes TFR outlines (SPIKE.md); we work with what we have. TFR NOTAMs are available through `get_notams` as FDC NOTAMs with text and dates, and outlines can be cross-checked by eye on public sites. The TFR adapter stays in the code base, turned off, until we either find a usable source or delete it.
 - **NMS production.** Access so far is staging, granted on ticket INC0036653 with the FAA's Terms of Service; moving to production is a separate onboarding step with the NOTAM Service Center.
 - AWC documented rate limit and terms of use.
 - Hosting target (Railway vs. cheap VPS).

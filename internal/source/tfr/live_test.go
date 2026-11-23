@@ -10,16 +10,19 @@ import (
 	"github.com/davidhinkes/hobbs/internal/provenance"
 )
 
-// TestLive exercises the real TFR site. It is skipped unless HOBBS_LIVE=1 so the
-// normal suite never touches the network.
+// TestLive exercises the real TFR site. The adapter is turned off, so this runs
+// only with its own explicit opt-in, HOBBS_ENABLE_TFR=1 (HOBBS_LIVE alone does
+// not reach tfr.faa.gov).
 func TestLive(t *testing.T) {
-	if os.Getenv("HOBBS_LIVE") != "1" {
-		t.Skip("set HOBBS_LIVE=1 to run against tfr.faa.gov")
+	if os.Getenv("HOBBS_ENABLE_TFR") != "1" {
+		t.Skip("the TFR adapter is off; set HOBBS_ENABLE_TFR=1 to run against tfr.faa.gov")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 	start := time.Now()
-	snap, err := New().Fetch(ctx, Filter{})
+	c := New()
+	c.Enabled = true
+	snap, err := c.Fetch(ctx, Filter{})
 	if err != nil {
 		if snap.Source.HTTPStatus == 403 {
 			// tfr.faa.gov serves "Access Denied" to this client. That is the

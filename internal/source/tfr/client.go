@@ -5,6 +5,11 @@
 // These endpoints are not a documented, supported API (docs/SPIKE.md), so every
 // snapshot is marked undocumented by the provenance contract, and behavior
 // here follows observed responses.
+//
+// The adapter is OFF by default: a Client refuses to fetch (ErrDisabled, with
+// no network request) unless Enabled is set. Nothing in the server sets it.
+// It is kept in the code base, built and tested, until there is a source we
+// can use.
 package tfr
 
 import (
@@ -39,11 +44,17 @@ const (
 	concurrency = 8
 )
 
-// ErrUpstream wraps a failure to obtain the TFR list (no usable data at all).
-var ErrUpstream = errors.New("tfr upstream error")
+var (
+	// ErrUpstream wraps a failure to obtain the TFR list (no usable data at all).
+	ErrUpstream = errors.New("tfr upstream error")
+	// ErrDisabled is returned by a Client that has not been enabled.
+	ErrDisabled = errors.New("tfr adapter is disabled")
+)
 
 // Client fetches TFRs.
 type Client struct {
+	// Enabled must be set explicitly for the client to make any request.
+	Enabled   bool
 	HTTP      *http.Client
 	BaseURL   string
 	UserAgent string
@@ -143,6 +154,9 @@ func (c *Client) get(ctx context.Context, url string, limit int64) (body []byte,
 // a Snapshot that still attributes the attempt) only when the list itself
 // cannot be obtained.
 func (c *Client) Fetch(ctx context.Context, f Filter) (source.Snapshot[model.TFR], error) {
+	if !c.Enabled {
+		return source.Snapshot[model.TFR]{}, ErrDisabled
+	}
 	listURL := c.BaseURL + "/tfrapi/getTfrList"
 	snap := source.Snapshot[model.TFR]{Source: provenance.Source{
 		ID: SourceID, Authority: Authority, URL: listURL,

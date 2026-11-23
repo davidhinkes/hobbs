@@ -47,4 +47,6 @@ go test ./...                 # offline, uses captured fixtures in testdata/
 HOBBS_LIVE=1 go test ./...    # also against the live sources (NOTAM tests run only if NMS_* are set)
 ```
 
+The TFR adapter (`internal/source/tfr`) is kept but turned off: nothing calls it, a client refuses to fetch unless `Enabled` is set, and its live test runs only with `HOBBS_ENABLE_TFR=1`.
+
 Design: `docs/DESIGN.md`. What the upstream services actually do: `docs/SPIKE.md`.
