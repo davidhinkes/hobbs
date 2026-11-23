@@ -72,6 +72,10 @@ Short answer: there is no documented public TFR API. What the FAA's own material
 
 Consequence: today the authorized route (NMS-API) gives TFR NOTAM text and dates but not outlines; the only place outlines are published is the TFR site, whose automated access is blocked. Deriving an area from the NOTAM text would be exactly the kind of logic §0 rules out. Open questions for the FAA are listed in DESIGN.md §7.
 
+### Does Aviation Weather offer TFRs? (2026-11-23)
+
+No, not as data. The documented AWC Data API (`aviationweather.gov/data/schema/openapi.yaml`) has 21 endpoints (`airmet`, `airport`, `airsigmet`, `areafcst`, `cwa`, `dataserver`, `fcstdisc`, `feature`, `fix`, `gairmet`, `isigmet`, `metar`, `mis`, `navaid`, `obstacle`, `pirep`, `sigmet`, `stationinfo`, `taf`, `tcf`, `windtemp`) and the spec never mentions TFRs. The TFR layer on the aviationweather.gov map is a display, and we do not reach into the site's internal map endpoints. The website is still a useful **manual** cross-check of what we return.
+
 ## FAA TFRs (tfr.faa.gov) — undocumented
 
 - `GET /tfrapi/getTfrList` — 47 TFRs, JSON, `Cache-Control: no-cache`. Fields: `notam_id`, `facility`, `state`, `type`, `description`, `mod_date`, `mod_abs_time`, `is_new`, `gid`. **No geometry, no altitudes, no dates beyond the free-text description.**
