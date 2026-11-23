@@ -53,6 +53,13 @@ Access: requested by email per the FAA NMS page; the FAA issued staging credenti
 - **A NOTAM `radius` of 999** means "no radius limit" in ICAO usage, not a 999 nm circle; no geometry is derived.
 - A 100 nm query around IAD returned 1,335 NOTAMs: 906 polygons, 402 points (756 of the total were circles from point plus radius), 21 multi-part areas, 6 multi-point; no polygon holes seen.
 
+### TFR site blocks this client (2026-11-23)
+
+The TFR adapter (`internal/source/tfr`) was built and tested against captured fixtures, and its detail format was verified by hand with `curl`. When the Go adapter itself called `tfr.faa.gov` live, the site answered **HTTP 403 "Access Denied"**, including for the list endpoint that `curl` had fetched successfully. That is an access control on the FAA's edge, not a bug we can fix in the parser. We did not try to get around it (varying headers or connection settings to look like another client): this is an undocumented endpoint and the block reads as intentional. Consequences:
+
+- The TFR adapter cannot be used live from this client until the FAA agrees to it. Ask the FAA (the TFR site is run by the same NOTAM organization) whether and how automated access is permitted.
+- The authorized alternative already in hand is the NMS-API: TFRs are FDC NOTAMs, which NMS serves with structured fields and geometry (e.g. `classification=FDC`). That would need verifying against what the TFR site publishes before relying on it.
+
 ## FAA TFRs (tfr.faa.gov) — undocumented
 
 - `GET /tfrapi/getTfrList` — 47 TFRs, JSON, `Cache-Control: no-cache`. Fields: `notam_id`, `facility`, `state`, `type`, `description`, `mod_date`, `mod_abs_time`, `is_new`, `gid`. **No geometry, no altitudes, no dates beyond the free-text description.**

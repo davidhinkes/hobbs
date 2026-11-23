@@ -145,7 +145,7 @@ Consequences: responses can be large, and the failure mode is visible (too much 
 | Need | Source | Access | Status |
 |---|---|---|---|
 | AIRMET (G-AIRMET), SIGMET, intl SIGMET, CWA | NOAA AWC Data API | public, no key | verified in spike |
-| TFRs | FAA `tfr.faa.gov` list + per-TFR XML | public, undocumented | verified in spike |
+| TFRs | FAA `tfr.faa.gov` list + per-TFR XML | public, undocumented; **blocks this Go client with HTTP 403** (see SPIKE.md), so the adapter is built and tested on fixtures but not usable live until the FAA permits automated access | adapter built, live access blocked |
 | NOTAMs (US) | FAA NOTAM Management Service API (NMS-API) | credentials by request: the FAA NMS page links "Request API Access" to 7-AWA-NAIMES@faa.gov (program questions: notams@faa.gov); staging access granted and verified (see SPIKE.md); production onboarding pending; ToS allow redistribution but not as "FAA data" |  staging verified |
 
 ## 4. Architecture
