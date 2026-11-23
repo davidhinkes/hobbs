@@ -36,7 +36,7 @@ HOBBS_TOKENS=<long-random-token> NMS_CLIENT_ID=... NMS_CLIENT_SECRET=... ./hobbs
 | Flag | Default | Meaning |
 |---|---|---|
 | `-http` | (stdio) | Listen address for Streamable HTTP, e.g. `:8080`; on Railway use `-http :$PORT` |
-| `-not-for-flight` | `true` | Marks every response from every tool with a `NOT_FOR_FLIGHT` warning (so nothing reads as complete) and says so in the tool descriptions. Turning it off is refused while NOTAMs come from staging or a custom host |
+| `-airworthy` | `false` | Declares responses usable for flight planning and navigation. By default every response says `"airworthy": false`, carries a `NOT_AIRWORTHY` warning (so nothing reads as complete), and the tool descriptions say so. Refused while NOTAMs come from staging or a custom host |
 | `-nms` | `off` | NOTAM source: `off`, `staging` or `production` |
 | `-nms-host` | | Override the NMS-API host |
 | `-rate`, `-burst` | `5`, `10` | HTTP only: global request rate limit |

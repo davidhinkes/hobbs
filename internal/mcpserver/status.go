@@ -107,5 +107,6 @@ func statusHandler(ctx context.Context, d Deps) (*mcp.CallToolResult, any, error
 	if err != nil {
 		return toolError("internal error: %v", err)
 	}
+	env.Airworthy = d.Airworthy
 	return envelopeResult(env, false)
 }

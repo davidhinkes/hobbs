@@ -83,6 +83,7 @@ func notamsHandler(ctx context.Context, d Deps, in NotamsInput) (*mcp.CallToolRe
 		if perr != nil {
 			return toolError("internal error: %v", perr)
 		}
+		env.Airworthy = d.Airworthy
 		return envelopeResult(env, true)
 	}
 
@@ -96,6 +97,7 @@ func notamsHandler(ctx context.Context, d Deps, in NotamsInput) (*mcp.CallToolRe
 		if perr != nil {
 			return toolError("internal error: %v", perr)
 		}
+		env.Airworthy = d.Airworthy
 		return envelopeResult(env, true)
 	}
 
@@ -118,5 +120,6 @@ func notamsHandler(ctx context.Context, d Deps, in NotamsInput) (*mcp.CallToolRe
 	if perr != nil {
 		return toolError("internal error: %v", perr)
 	}
+	env.Airworthy = d.Airworthy
 	return envelopeResult(env, false)
 }

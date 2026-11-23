@@ -30,30 +30,31 @@ type Deps struct {
 	// NMS is nil when NMS-API credentials are not configured; NOTAM calls then
 	// say so and are marked incomplete.
 	NMS *nms.Client
-	// NotForFlight marks every response, from every tool, as not to be used
-	// for flight (a NOT_FOR_FLIGHT warning, so nothing reads as complete), and
-	// says so in the tool descriptions.
-	NotForFlight bool
-	Now          func() time.Time
+	// Airworthy declares that this server's responses may be used for flight
+	// planning and navigation (see the provenance package). False by default:
+	// then every response from every tool says airworthy: false, carries a
+	// NOT_AIRWORTHY warning, and the tool descriptions say so.
+	Airworthy bool
+	Now       func() time.Time
 }
 
-const notForFlightText = "This server is running in NOT-FOR-FLIGHT mode: its data may come from test environments or be otherwise unsuitable. Do not use it for flight planning or navigation."
+const notAirworthyText = "NOT AIRWORTHY: this server's data may come from test environments or be otherwise unsuitable. Do not use it for flight planning or navigation."
 
-// mark adds the NOT_FOR_FLIGHT warning when the server runs in that mode.
+// mark adds the NOT_AIRWORTHY warning unless the server is airworthy.
 func (d Deps) mark(issues []provenance.Issue) []provenance.Issue {
-	if !d.NotForFlight {
+	if d.Airworthy {
 		return issues
 	}
-	return append(issues, provenance.Issue{Code: provenance.NotForFlight, Severity: provenance.Warning, Message: notForFlightText})
+	return append(issues, provenance.Issue{Code: provenance.NotAirworthy, Severity: provenance.Warning, Message: notAirworthyText})
 }
 
-// describe prefixes a tool or server description with the mode, so an agent
-// sees it before calling anything.
+// describe prefixes a tool or server description when the server is not
+// airworthy, so an agent sees it before calling anything.
 func (d Deps) describe(s string) string {
-	if !d.NotForFlight {
+	if d.Airworthy {
 		return s
 	}
-	return notForFlightText + " " + s
+	return notAirworthyText + " " + s
 }
 
 // Filters states who narrowed a result. Anything in AppliedBySource was

@@ -92,12 +92,12 @@ func newUpstreams(t *testing.T) *upstreams {
 	return u
 }
 
-func (u *upstreams) deps(t *testing.T, withNMS, notForFlight bool) Deps {
+func (u *upstreams) deps(t *testing.T, withNMS, airworthy bool) Deps {
 	t.Helper()
 	a := awc.New()
 	a.BaseURL = u.awcSrv.URL
 	a.Now = func() time.Time { return fixedNow }
-	d := Deps{AWC: a, NotForFlight: notForFlight, Now: func() time.Time { return fixedNow }}
+	d := Deps{AWC: a, Airworthy: airworthy, Now: func() time.Time { return fixedNow }}
 	if withNMS {
 		c, err := nms.NewClient(nms.Config{Host: u.nmsSrv.URL, ClientID: "id-0000000000", ClientSecret: "secret-0000000", Now: func() time.Time { return fixedNow }})
 		if err != nil {
@@ -130,6 +130,7 @@ func connect(t *testing.T, d Deps) *mcp.ClientSession {
 // reply is the part of the envelope the tests inspect.
 type reply struct {
 	Data        json.RawMessage `json:"data"`
+	Airworthy   *bool           `json:"airworthy"`
 	EvaluatedAt string          `json:"evaluated_at"`
 	Disclaimer  string          `json:"disclaimer"`
 	Provenance  struct {
@@ -190,7 +191,7 @@ func text(res *mcp.CallToolResult) string {
 }
 
 func TestToolsAreListedWithTheContractInTheirDescriptions(t *testing.T) {
-	cs := connect(t, newUpstreams(t).deps(t, true, false))
+	cs := connect(t, newUpstreams(t).deps(t, true, true))
 	res, err := cs.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -233,7 +234,7 @@ func TestToolsAreListedWithTheContractInTheirDescriptions(t *testing.T) {
 }
 
 func TestWeatherReturnsEverythingWithProvenance(t *testing.T) {
-	cs := connect(t, newUpstreams(t).deps(t, true, false))
+	cs := connect(t, newUpstreams(t).deps(t, true, true))
 	res, r := call(t, cs, "get_weather_advisories", nil)
 	if res.IsError {
 		t.Fatalf("error: %s", text(res))
@@ -317,7 +318,7 @@ func TestWeatherReturnsEverythingWithProvenance(t *testing.T) {
 }
 
 func TestWeatherKindsAndHazardFilters(t *testing.T) {
-	cs := connect(t, newUpstreams(t).deps(t, true, false))
+	cs := connect(t, newUpstreams(t).deps(t, true, true))
 
 	res, r := call(t, cs, "get_weather_advisories", map[string]any{"kinds": []string{"cwa"}})
 	if res.IsError || len(r.Provenance.Sources) != 1 || r.Provenance.Sources[0].ID != "awc.cwa" {
@@ -366,7 +367,7 @@ func TestWeatherKindsAndHazardFilters(t *testing.T) {
 
 func TestWeatherFailuresAreVisibleNotSilent(t *testing.T) {
 	u := newUpstreams(t)
-	cs := connect(t, u.deps(t, true, false))
+	cs := connect(t, u.deps(t, true, true))
 
 	// One feed down: the rest is returned, the gap is a critical issue, status incomplete.
 	u.awcFail["/gairmet"] = 503
@@ -410,7 +411,7 @@ func TestWeatherFailuresAreVisibleNotSilent(t *testing.T) {
 
 func TestNotamsForwardFiltersAndSayWhoAppliedThem(t *testing.T) {
 	u := newUpstreams(t)
-	cs := connect(t, u.deps(t, true, true))
+	cs := connect(t, u.deps(t, true, false))
 
 	res, r := call(t, cs, "get_notams", map[string]any{"location": "KIAD", "classification": "domestic", "free_text": "TWY"})
 	if res.IsError {
@@ -444,8 +445,8 @@ func TestNotamsForwardFiltersAndSayWhoAppliedThem(t *testing.T) {
 			t.Errorf("%s: raw text lost", n.ID)
 		}
 	}
-	// In not-for-flight mode the response is marked and cannot assert completeness.
-	if !r.hasIssue("NOT_FOR_FLIGHT", "") || r.Completeness.Status == "complete" {
+	// Not airworthy: the response says so and cannot assert completeness.
+	if !r.hasIssue("NOT_AIRWORTHY", "") || r.Completeness.Status == "complete" || r.Airworthy == nil || *r.Airworthy {
 		t.Errorf("status=%s issues=%+v", r.Completeness.Status, r.Completeness.Issues)
 	}
 
@@ -456,17 +457,17 @@ func TestNotamsForwardFiltersAndSayWhoAppliedThem(t *testing.T) {
 		t.Errorf("forwarded = %v", q)
 	}
 
-	// Without the mode, no mark.
-	cs2 := connect(t, u.deps(t, true, false))
+	// Airworthy: no mark.
+	cs2 := connect(t, u.deps(t, true, true))
 	_, r = call(t, cs2, "get_notams", map[string]any{"location": "KIAD"})
-	if r.hasIssue("NOT_FOR_FLIGHT", "") {
-		t.Error("the mark must appear only in not-for-flight mode")
+	if r.hasIssue("NOT_AIRWORTHY", "") || r.Airworthy == nil || !*r.Airworthy {
+		t.Error("an airworthy server must say airworthy: true and carry no mark")
 	}
 }
 
 func TestNotamRequestErrorsAreCorrectableByTheAgent(t *testing.T) {
 	u := newUpstreams(t)
-	cs := connect(t, u.deps(t, true, false))
+	cs := connect(t, u.deps(t, true, true))
 	cases := map[string]struct {
 		args map[string]any
 		want string
@@ -497,7 +498,7 @@ func TestNotamRequestErrorsAreCorrectableByTheAgent(t *testing.T) {
 
 func TestNotamsWhenTheSourceIsUnavailable(t *testing.T) {
 	// Not configured: say so, mark incomplete, never an empty list that reads as "none".
-	cs := connect(t, newUpstreams(t).deps(t, false, true))
+	cs := connect(t, newUpstreams(t).deps(t, false, false))
 	res, r := call(t, cs, "get_notams", map[string]any{"location": "KIAD"})
 	if !res.IsError || r.Completeness.Status != "incomplete" || len(r.Provenance.NotConsulted) != 1 || r.Provenance.NotConsulted[0].ID != "faa.nms.notam" {
 		t.Errorf("isError=%v status=%s notConsulted=%+v", res.IsError, r.Completeness.Status, r.Provenance.NotConsulted)
@@ -509,7 +510,7 @@ func TestNotamsWhenTheSourceIsUnavailable(t *testing.T) {
 	// Upstream failure.
 	u := newUpstreams(t)
 	u.nmsFail = 500
-	cs = connect(t, u.deps(t, true, false))
+	cs = connect(t, u.deps(t, true, true))
 	res, r = call(t, cs, "get_notams", map[string]any{"location": "KIAD"})
 	if !res.IsError || !r.hasIssue("SOURCE_UNAVAILABLE", "faa.nms.notam") || r.Completeness.Status != "incomplete" {
 		t.Errorf("isError=%v status=%s issues=%+v", res.IsError, r.Completeness.Status, r.Completeness.Issues)
@@ -521,7 +522,7 @@ func TestNotamsWhenTheSourceIsUnavailable(t *testing.T) {
 
 func TestSourceStatus(t *testing.T) {
 	u := newUpstreams(t)
-	cs := connect(t, u.deps(t, true, true))
+	cs := connect(t, u.deps(t, true, false))
 	res, r := call(t, cs, "source_status", nil)
 	if res.IsError {
 		t.Fatal(text(res))
@@ -545,8 +546,8 @@ func TestSourceStatus(t *testing.T) {
 			t.Errorf("a host that is neither staging nor production must say so: %+v", s)
 		}
 	}
-	if !r.hasIssue("NOT_FOR_FLIGHT", "") {
-		t.Error("not-for-flight mode must mark the status response too")
+	if !r.hasIssue("NOT_AIRWORTHY", "") {
+		t.Error("a server that is not airworthy must mark the status response too")
 	}
 
 	// A failing source is reported, not hidden.
@@ -565,7 +566,7 @@ func TestSourceStatus(t *testing.T) {
 	}
 
 	// Unconfigured NOTAM source is reported as such.
-	cs2 := connect(t, newUpstreams(t).deps(t, false, true))
+	cs2 := connect(t, newUpstreams(t).deps(t, false, false))
 	_, r = call(t, cs2, "source_status", nil)
 	json.Unmarshal(r.Data, &d)
 	last := d.Sources[len(d.Sources)-1]
@@ -584,7 +585,7 @@ func TestNewRequiresAnAWCClient(t *testing.T) {
 // says how many items were omitted and cannot read as complete.
 func TestCallerChosenLimitIsReportedNotSilent(t *testing.T) {
 	u := newUpstreams(t)
-	cs := connect(t, u.deps(t, true, false))
+	cs := connect(t, u.deps(t, true, true))
 
 	res, r := call(t, cs, "get_weather_advisories", map[string]any{"limit": 5})
 	if res.IsError {
@@ -650,7 +651,7 @@ func TestCallerChosenLimitIsReportedNotSilent(t *testing.T) {
 }
 
 func TestGeometryCanBeOmittedOnRequestAndSaysSo(t *testing.T) {
-	cs := connect(t, newUpstreams(t).deps(t, true, false))
+	cs := connect(t, newUpstreams(t).deps(t, true, true))
 	hasGeom := func(data json.RawMessage, key string) (withGeom, total int, omitted []string) {
 		var d struct {
 			Omitted []string                   `json:"omitted_fields"`
@@ -695,13 +696,14 @@ func TestGeometryCanBeOmittedOnRequestAndSaysSo(t *testing.T) {
 	}
 }
 
-// Not-for-flight mode marks every response from every tool, including error
-// envelopes, and says so in the descriptions before anything is called.
-func TestNotForFlightModeMarksEverything(t *testing.T) {
-	for _, on := range []bool{true, false} {
+// Unless the server is airworthy, every response from every tool, including
+// error envelopes, says airworthy: false and carries NOT_AIRWORTHY, and the
+// descriptions say so before anything is called.
+func TestAirworthyIsOnEveryResponse(t *testing.T) {
+	for _, airworthy := range []bool{false, true} {
 		u := newUpstreams(t)
-		cs := connect(t, u.deps(t, true, on))
-		off := connect(t, u.deps(t, false, on)) // NOTAMs not configured
+		cs := connect(t, u.deps(t, true, airworthy))
+		off := connect(t, u.deps(t, false, airworthy)) // NOTAMs not configured
 		calls := []struct {
 			cs   *mcp.ClientSession
 			name string
@@ -714,27 +716,29 @@ func TestNotForFlightModeMarksEverything(t *testing.T) {
 		}
 		for _, c := range calls {
 			_, r := call(t, c.cs, c.name, c.args)
-			if got := r.hasIssue("NOT_FOR_FLIGHT", ""); got != on {
-				t.Errorf("mode=%v %s: NOT_FOR_FLIGHT present=%v", on, c.name, got)
+			if r.Airworthy == nil || *r.Airworthy != airworthy {
+				t.Errorf("airworthy=%v %s: envelope airworthy = %v", airworthy, c.name, r.Airworthy)
 			}
-			if on && r.Completeness.Status == "complete" {
-				t.Errorf("%s: a not-for-flight response must never read as complete", c.name)
+			if got := r.hasIssue("NOT_AIRWORTHY", ""); got == airworthy {
+				t.Errorf("airworthy=%v %s: NOT_AIRWORTHY present=%v", airworthy, c.name, got)
+			}
+			if !airworthy && r.Completeness.Status == "complete" {
+				t.Errorf("%s: a response that is not airworthy must never read as complete", c.name)
 			}
 			for _, i := range r.Completeness.Issues {
-				if i.Code == "NOT_FOR_FLIGHT" && (i.Severity != "warning" || !strings.Contains(i.Message, "Do not use it for flight")) {
+				if i.Code == "NOT_AIRWORTHY" && (i.Severity != "warning" || !strings.Contains(i.Message, "Do not use it for flight")) {
 					t.Errorf("issue = %+v", i)
 				}
 			}
 		}
 		tools, _ := cs.ListTools(context.Background(), nil)
 		for _, tl := range tools.Tools {
-			if got := strings.HasPrefix(tl.Description, "This server is running in NOT-FOR-FLIGHT mode"); got != on {
-				t.Errorf("mode=%v %s: description prefixed=%v", on, tl.Name, got)
+			if got := strings.HasPrefix(tl.Description, "NOT AIRWORTHY:"); got == airworthy {
+				t.Errorf("airworthy=%v %s: description prefixed=%v", airworthy, tl.Name, got)
 			}
 		}
-		init := cs.InitializeResult()
-		if got := strings.HasPrefix(init.Instructions, "This server is running in NOT-FOR-FLIGHT mode"); got != on {
-			t.Errorf("mode=%v: server instructions prefixed=%v", on, got)
+		if got := strings.HasPrefix(cs.InitializeResult().Instructions, "NOT AIRWORTHY:"); got == airworthy {
+			t.Errorf("airworthy=%v: server instructions prefixed=%v", airworthy, got)
 		}
 	}
 }

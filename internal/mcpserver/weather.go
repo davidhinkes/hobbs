@@ -142,5 +142,6 @@ func weatherHandler(ctx context.Context, d Deps, in WeatherInput) (*mcp.CallTool
 	if err != nil {
 		return toolError("internal error: %v", err)
 	}
+	env.Airworthy = d.Airworthy
 	return envelopeResult(env, failed == len(feeds))
 }

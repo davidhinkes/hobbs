@@ -173,7 +173,7 @@ func TestJSONContract(t *testing.T) {
 	if err := json.Unmarshal(b, &m); err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range []string{"data", "evaluated_at", "provenance", "completeness", "disclaimer"} {
+	for _, k := range []string{"data", "evaluated_at", "provenance", "completeness", "airworthy", "disclaimer"} {
 		if _, ok := m[k]; !ok {
 			t.Errorf("missing top-level key %q", k)
 		}
@@ -223,5 +223,18 @@ func TestIssuesSortedBySeverity(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("order = %v, want %v", got, want)
 		}
+	}
+}
+
+// Airworthy is part of the wire contract and defaults to false: an envelope
+// nobody explicitly declared airworthy is not.
+func TestAirworthyDefaultsToFalse(t *testing.T) {
+	env, err := New("x", now, []Source{src("a")}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(env)
+	if !strings.Contains(string(b), `"airworthy":false`) {
+		t.Errorf("airworthy must be serialized and false by default: %s", b)
 	}
 }

@@ -111,7 +111,7 @@ Rules that follow:
 | `UNDOCUMENTED_SOURCE` | Endpoint is not a documented, supported API (info) |
 | `RESULT_TRUNCATED` | Output limited; count of omitted items given |
 | `SOURCE_NOT_ENABLED` | Source configured off (e.g. NOTAMs pending FAA access) |
-| `NOT_FOR_FLIGHT` | The server runs in not-for-flight mode (§5): every response from every tool carries it, so nothing reads as complete |
+| `NOT_AIRWORTHY` | The server is not airworthy (§5): every response from every tool carries it, so nothing reads as complete |
 | `CLOCK_SKEW` | Upstream timestamps inconsistent with our clock |
 
 We make no assumptions about applicability: unknown stays unknown, and the server never decides whether something applies to a flight. See the scope rule in §2.
@@ -207,7 +207,7 @@ Input errors come back as `isError` results with a message the agent can act on,
 
 - **stdio** (default) for a local MCP client.
 - **Streamable HTTP** (`-http :8080`; on Railway `-http :$PORT`): stateless, at `/mcp`, with an open `/healthz`. It refuses to start without at least one bearer token (`HOBBS_TOKENS`, each at least 16 characters) and applies a global rate limit (`-rate`, `-burst`; default 5 per second, burst 10) so a runaway agent loop cannot exhaust upstream quotas. Unauthenticated requests never reach a source and do not consume the rate budget.
-- **Not-for-flight mode (`-not-for-flight`, on by default).** Every response from every tool carries a `NOT_FOR_FLIGHT` warning, and the server instructions and every tool description start by saying the data must not be used for flight planning or navigation. It is one server-wide switch rather than a label on one source. Turning it off is refused while NOTAMs come from the NMS staging environment or a custom host, so test data can never be served unmarked. `source_status` still reports which NMS environment is in use.
+- **Airworthy (`-airworthy`, false by default).** Every envelope has an `airworthy` field: whether the response may be used for flight planning and navigation (defined once, in the `provenance` package). By default it is `false`, every response from every tool also carries a `NOT_AIRWORTHY` warning (so nothing reads as complete), and the server instructions and every tool description start with "NOT AIRWORTHY". Starting with `-airworthy` is refused while NOTAMs come from the NMS staging environment or a custom host, so test data can never be declared airworthy. Airworthy is necessary, not sufficient: it does not make the data complete or correct, which completeness and the as-is disclaimer still govern. `source_status` reports which NMS environment is in use.
 - **Configuration is by command-line flag; secrets only in environment variables** (`HOBBS_TOKENS`, `NMS_CLIENT_ID`, `NMS_CLIENT_SECRET`), so they never appear in process listings or shell history; on Railway, as service variables. The NOTAM source is chosen with `-nms off|staging|production` (default `off`). Logs go to stderr and never contain credentials.
 
 ## 6. Safety and trust

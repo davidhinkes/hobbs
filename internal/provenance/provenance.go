@@ -4,6 +4,20 @@
 // retrieved, and every problem with the data pull that could affect the
 // result. Handlers cannot return bare data: New is the only way to build an
 // Envelope, and it validates and derives the completeness status itself.
+//
+// # Airworthy
+//
+// Every envelope says whether it is airworthy: whether its data may be used for
+// flight planning and navigation. It is false by default and is true only when
+// the server was started in airworthy mode (the -airworthy flag), which the
+// server accepts only when every source it serves is an operational
+// (production) service, never a test environment.
+//
+// Airworthy is necessary, not sufficient. It does not mean the data is
+// complete or correct: everything is still provided as is, and completeness
+// still has to be read. Not airworthy means: do not use for flight planning
+// or navigation. A response that is not airworthy also carries a
+// NOT_AIRWORTHY warning, so it can never read as complete.
 package provenance
 
 import (
@@ -73,14 +87,14 @@ const (
 	SourceNotEnabled     Code = "SOURCE_NOT_ENABLED"
 	ClockSkew            Code = "CLOCK_SKEW"
 	AltitudeAssumed      Code = "ALTITUDE_ASSUMED"
-	NotForFlight         Code = "NOT_FOR_FLIGHT"
+	NotAirworthy         Code = "NOT_AIRWORTHY"
 )
 
 var knownCodes = map[Code]bool{
 	SourceUnavailable: true, StaleData: true, UpstreamError: true, ParseFailed: true,
 	GeometryUnavailable: true, GeometryPartial: true, GeometryNotArea: true,
 	AltitudeUnknown: true, ScheduleUnevaluable: true, UpstreamFilterIgnore: true,
-	UndocumentedSource: true, ResultTruncated: true, SourceNotEnabled: true, ClockSkew: true, AltitudeAssumed: true, NotForFlight: true,
+	UndocumentedSource: true, ResultTruncated: true, SourceNotEnabled: true, ClockSkew: true, AltitudeAssumed: true, NotAirworthy: true,
 }
 
 // Source describes one official upstream consulted for a response.
@@ -140,7 +154,10 @@ type Envelope[T any] struct {
 	EvaluatedAt  time.Time    `json:"evaluated_at"`
 	Provenance   Provenance   `json:"provenance"`
 	Completeness Completeness `json:"completeness"`
-	Disclaimer   string       `json:"disclaimer"`
+	// Airworthy says whether this response may be used for flight planning
+	// and navigation. See the Airworthy section of the package documentation.
+	Airworthy  bool   `json:"airworthy"`
+	Disclaimer string `json:"disclaimer"`
 }
 
 // CanAssertNone reports whether an empty result may be presented as "nothing

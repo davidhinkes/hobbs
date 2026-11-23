@@ -1,6 +1,6 @@
 // Command hobbs serves the aviation data layer over MCP.
 //
-//	hobbs                          serve over stdio (weather only), marked not for flight
+//	hobbs                          serve over stdio (weather only), not airworthy
 //	hobbs -nms staging             also serve NOTAMs from the NMS-API staging environment
 //	hobbs -http :8080 -nms staging serve over Streamable HTTP (hosted)
 //
@@ -34,19 +34,19 @@ import (
 )
 
 type options struct {
-	notForFlight bool
-	http         string
-	rate         float64
-	burst        int
-	nms          string
-	nmsHost      string
+	airworthy bool
+	http      string
+	rate      float64
+	burst     int
+	nms       string
+	nmsHost   string
 }
 
 func main() {
 	// Logs go to stderr: on the stdio transport stdout carries the protocol.
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	var o options
-	flag.BoolVar(&o.notForFlight, "not-for-flight", true, "mark every response as not to be used for flight (NOT_FOR_FLIGHT). Turning it off (-not-for-flight=false) is refused when NOTAMs come from staging or a custom host")
+	flag.BoolVar(&o.airworthy, "airworthy", false, "declare responses usable for flight planning and navigation (airworthy: true). Off by default: every response then says airworthy: false. Refused when NOTAMs come from staging or a custom host")
 	flag.StringVar(&o.http, "http", "", "listen address for the hosted Streamable HTTP server, e.g. :8080 (on Railway: -http :$PORT); empty serves MCP over stdio")
 	flag.Float64Var(&o.rate, "rate", 5, "HTTP only: global request rate limit, requests per second")
 	flag.IntVar(&o.burst, "burst", 10, "HTTP only: global request burst")
@@ -96,19 +96,19 @@ func run(log *slog.Logger, o options) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if !o.notForFlight && (o.nms == "staging" || o.nmsHost != "") {
-		return errors.New("-not-for-flight=false is refused: NOTAMs from staging or a custom host are test data and must stay marked")
+	if o.airworthy && (o.nms == "staging" || o.nmsHost != "") {
+		return errors.New("-airworthy is refused: NOTAMs from staging or a custom host are test data and cannot be airworthy")
 	}
-	if o.notForFlight {
-		log.Info("NOT-FOR-FLIGHT mode: every response is marked as not to be used for flight")
+	if o.airworthy {
+		log.Warn("AIRWORTHY mode: responses are declared usable for flight planning and navigation")
 	} else {
-		log.Warn("not-for-flight mode is OFF: responses are not marked")
+		log.Info("not airworthy (default): every response says airworthy: false")
 	}
 	n, err := nmsClient(log, o)
 	if err != nil {
 		return err
 	}
-	srv, err := mcpserver.New(mcpserver.Deps{AWC: awc.New(), NMS: n, NotForFlight: o.notForFlight})
+	srv, err := mcpserver.New(mcpserver.Deps{AWC: awc.New(), NMS: n, Airworthy: o.airworthy})
 	if err != nil {
 		return err
 	}
