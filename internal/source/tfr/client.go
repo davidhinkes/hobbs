@@ -66,7 +66,7 @@ func New() *Client {
 	return &Client{
 		HTTP:      &http.Client{Timeout: 30 * time.Second},
 		BaseURL:   DefaultBaseURL,
-		UserAgent: "hobbs-mcp (aviation advisories data layer)",
+		UserAgent: source.UserAgent,
 		Now:       time.Now,
 	}
 }

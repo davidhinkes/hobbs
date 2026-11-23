@@ -37,10 +37,10 @@ const (
 
 // Source IDs used in provenance.
 const (
-	IDAirSigmet = "awc.airsigmet"
-	IDGAirmet   = "awc.gairmet"
-	IDIntlSig   = "awc.isigmet"
-	IDCWA       = "awc.cwa"
+	IDAirSigmet  = "awc.airsigmet"
+	IDGAirmet    = "awc.gairmet"
+	IDIntlSigmet = "awc.isigmet"
+	IDCWA        = "awc.cwa"
 )
 
 // ErrUpstream wraps every failure to obtain usable data from AWC.
@@ -60,7 +60,7 @@ func New() *Client {
 	return &Client{
 		HTTP:      &http.Client{Timeout: 30 * time.Second},
 		BaseURL:   DefaultBaseURL,
-		UserAgent: "hobbs-mcp (aviation advisories data layer)",
+		UserAgent: source.UserAgent,
 		Now:       time.Now,
 	}
 }
@@ -84,7 +84,7 @@ func (c *Client) GAirmet() source.Source[model.Advisory] {
 	return &feed{c, IDGAirmet, "gairmet", model.KindAIRMET, parseGAirmet}
 }
 func (c *Client) IntlSigmet() source.Source[model.Advisory] {
-	return &feed{c, IDIntlSig, "isigmet", model.KindIntlSIGMET, parseIntlSigmet}
+	return &feed{c, IDIntlSigmet, "isigmet", model.KindIntlSIGMET, parseIntlSigmet}
 }
 func (c *Client) CWA() source.Source[model.Advisory] {
 	return &feed{c, IDCWA, "cwa", model.KindCWA, parseCWA}

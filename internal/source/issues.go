@@ -7,8 +7,12 @@ import (
 	"github.com/davidhinkes/hobbs/internal/provenance"
 )
 
-// MaxRefs caps how many record IDs one issue lists.
-const MaxRefs = 20
+const (
+	// MaxRefs caps how many record IDs one issue lists.
+	MaxRefs = 20
+	// UserAgent identifies this server to every upstream.
+	UserAgent = "hobbs-mcp (aviation advisories data layer)"
+)
 
 // Notes collects the problems found while parsing one record. Adapters attach
 // them to the record as parse_issues; a record with notes is kept, never dropped.

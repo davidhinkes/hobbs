@@ -22,7 +22,7 @@ type SourceStatus struct {
 	// Environment is "production", "staging" (a test environment), "custom
 	// host", or "n/a".
 	Environment string `json:"environment"`
-	// Status is "ok", "error" or "not_configured".
+	// Status is "ok", "error" or "not_enabled".
 	Status        string `json:"status"`
 	HTTPStatus    int    `json:"http_status,omitempty"`
 	LatencyMS     int64  `json:"latency_ms,omitempty"`
@@ -84,7 +84,7 @@ func statusHandler(ctx context.Context, d Deps) (*mcp.CallToolResult, any, error
 		}
 		statuses[i] = st
 		srcs[i] = provenance.Source{ID: nms.SourceID, Authority: nms.Authority, URL: d.NMS.Host() + "/nmsapi/v1/ping",
-			Documentation: provenance.Documented, RetrievedAt: time.Now().UTC(), ServedFrom: provenance.Live, HTTPStatus: code}
+			Documentation: provenance.Documented, RetrievedAt: d.Now().UTC(), ServedFrom: provenance.Live, HTTPStatus: code}
 	})
 
 	var sources []provenance.Source
@@ -100,13 +100,8 @@ func statusHandler(ctx context.Context, d Deps) (*mcp.CallToolResult, any, error
 	}
 	if d.NMS == nil {
 		statuses = append(statuses, SourceStatus{ID: nms.SourceID, Authority: nms.Authority, Documentation: string(provenance.Documented),
-			Environment: "n/a", Status: "not_configured", Error: "NMS-API credentials are not configured"})
-		notConsulted = append(notConsulted, provenance.NotConsulted{ID: nms.SourceID, Reason: "not_configured"})
+			Environment: "n/a", Status: notEnabled, Error: notEnabledText})
+		notConsulted = append(notConsulted, provenance.NotConsulted{ID: nms.SourceID, Reason: notEnabled})
 	}
-	env, err := provenance.New(statusData{CheckedAt: now, Sources: statuses}, now, sources, notConsulted, d.mark(issues))
-	if err != nil {
-		return toolError("internal error: %v", err)
-	}
-	env.Airworthy = d.Airworthy
-	return envelopeResult(env, false)
+	return respond(d, statusData{CheckedAt: now, Sources: statuses}, now, sources, notConsulted, issues, false)
 }

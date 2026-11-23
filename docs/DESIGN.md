@@ -216,7 +216,7 @@ Input errors come back as `isError` results with a message the agent can act on,
 - **Not presented as FAA data.** The NMS-API Terms of Service allow redistribution but say redistributed information may not be characterized as FAA data. The disclaimer states the data is a best-effort copy, not FAA/NWS data as published, and not endorsed. Sources are still named for provenance; confirm the attribution wording with the FAA if it becomes an issue.
 - Advisory only. The FAA briefing channels remain the legal standard.
 - NOTAM/TFR free text is untrusted: returned in a delimited `raw_text` field, never merged into summaries, and tool descriptions say it is data, not instructions.
-- Hosted: bearer token per agent and a global rate limit so a runaway loop cannot exhaust upstream quotas. NOTAMs are switched off simply by not configuring the NMS credentials (responses then say the source is not configured). `/healthz` only says the process is up; `source_status` checks the sources. An external uptime alert is still to do.
+- Hosted: bearer token per agent and a global rate limit so a runaway loop cannot exhaust upstream quotas. NOTAMs are switched off by leaving out `-nms-url` (responses then say the source is not enabled). `/healthz` only says the process is up; `source_status` checks the sources. An external uptime alert is still to do.
 - Credentials (NMS client id/secret) only in environment variables.
 
 ## 7. Open items

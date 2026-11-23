@@ -138,10 +138,5 @@ func weatherHandler(ctx context.Context, d Deps, in WeatherInput) (*mcp.CallTool
 		sources[i].RecordsReturned = returned[sources[i].ID]
 	}
 
-	env, err := provenance.New(data, now, sources, nil, d.mark(issues))
-	if err != nil {
-		return toolError("internal error: %v", err)
-	}
-	env.Airworthy = d.Airworthy
-	return envelopeResult(env, failed == len(feeds))
+	return respond(d, data, now, sources, nil, issues, failed == len(feeds))
 }

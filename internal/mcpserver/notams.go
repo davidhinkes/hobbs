@@ -31,6 +31,13 @@ type NotamsInput struct {
 	IncludeGeometry *bool    `json:"include_geometry,omitempty" jsonschema:"Optional, default true. Set false to leave geometry out of each item to make the response much smaller; the response lists geometry under omitted_fields."`
 }
 
+// notEnabled is the one name for "the NOTAM source is turned off", used in
+// not_consulted and in source_status.
+const (
+	notEnabled     = "not_enabled"
+	notEnabledText = "NOTAMs are unavailable: the NOTAM source is not enabled on this server"
+)
+
 type notamData struct {
 	Filters       Filters       `json:"filters"`
 	OmittedFields []string      `json:"omitted_fields"`
@@ -75,16 +82,11 @@ func notamsHandler(ctx context.Context, d Deps, in NotamsInput) (*mcp.CallToolRe
 	data := notamData{Filters: newFilters(), NOTAMs: []model.Notam{}, OmittedFields: []string{}}
 
 	if d.NMS == nil {
-		// Credentials are not configured: say so rather than return an empty list.
-		env, perr := provenance.New(data, now, nil, []provenance.NotConsulted{{ID: nms.SourceID, Reason: "not_configured"}}, d.mark([]provenance.Issue{{
+		// The NOTAM source is not enabled: say so rather than return an empty list.
+		return respond(d, data, now, nil, []provenance.NotConsulted{{ID: nms.SourceID, Reason: notEnabled}}, []provenance.Issue{{
 			Code: provenance.SourceNotEnabled, Severity: provenance.Critical, Source: nms.SourceID,
-			Message: "NOTAMs are unavailable: the NOTAM source is not enabled on this server",
-		}}))
-		if perr != nil {
-			return toolError("internal error: %v", perr)
-		}
-		env.Airworthy = d.Airworthy
-		return envelopeResult(env, true)
+			Message: notEnabledText,
+		}}, true)
 	}
 
 	snap, qerr := d.NMS.Query(ctx, q)
@@ -93,12 +95,7 @@ func notamsHandler(ctx context.Context, d Deps, in NotamsInput) (*mcp.CallToolRe
 			return toolError("%v", qerr) // the request itself is wrong; the agent can fix it
 		}
 		s, is := failure(snap.Source, nms.SourceID, qerr, now)
-		env, perr := provenance.New(data, now, []provenance.Source{s}, nil, d.mark([]provenance.Issue{is}))
-		if perr != nil {
-			return toolError("internal error: %v", perr)
-		}
-		env.Airworthy = d.Airworthy
-		return envelopeResult(env, true)
+		return respond(d, data, now, []provenance.Source{s}, nil, []provenance.Issue{is}, true)
 	}
 
 	data.Filters.AppliedBySource = q.Applied()
@@ -116,10 +113,5 @@ func notamsHandler(ctx context.Context, d Deps, in NotamsInput) (*mcp.CallToolRe
 		data.OmittedFields = append(data.OmittedFields, "geometry")
 	}
 	snap.Source.RecordsReturned = len(data.NOTAMs)
-	env, perr := provenance.New(data, now, []provenance.Source{snap.Source}, nil, d.mark(issues))
-	if perr != nil {
-		return toolError("internal error: %v", perr)
-	}
-	env.Airworthy = d.Airworthy
-	return envelopeResult(env, false)
+	return respond(d, data, now, []provenance.Source{snap.Source}, nil, issues, false)
 }

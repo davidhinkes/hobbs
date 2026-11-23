@@ -27,8 +27,8 @@ const Version = "0.1.0-dev"
 // Deps are the server's upstream clients.
 type Deps struct {
 	AWC *awc.Client
-	// NMS is nil when NMS-API credentials are not configured; NOTAM calls then
-	// say so and are marked incomplete.
+	// NMS is nil when the NOTAM source is not enabled; NOTAM calls then say so
+	// and are marked incomplete.
 	NMS *nms.Client
 	// Airworthy declares that this server's responses may be used for flight
 	// planning and navigation (see the provenance package). False by default:
@@ -107,9 +107,21 @@ func toolError(format string, a ...any) (*mcp.CallToolResult, any, error) {
 	}, nil, nil
 }
 
-// envelopeResult returns an envelope as both structured content and JSON text.
-// isErr is set only when the call obtained no data at all.
-func envelopeResult(env any, isErr bool) (*mcp.CallToolResult, any, error) {
+// respond builds the response every tool returns: the provenance envelope with
+// the NOT_AIRWORTHY mark and the airworthy field set from the server's mode,
+// encoded as both structured content and JSON text. Every tool response goes
+// through here, so none can leave out the airworthy label. isErr is set only
+// when the call obtained no data at all.
+func respond[T any](d Deps, data T, now time.Time, sources []provenance.Source, nc []provenance.NotConsulted, issues []provenance.Issue, isErr bool) (*mcp.CallToolResult, any, error) {
+	env, err := provenance.New(data, now, sources, nc, d.mark(issues))
+	if err != nil {
+		return toolError("internal error: %v", err)
+	}
+	env.Airworthy = d.Airworthy
+	return encode(env, isErr)
+}
+
+func encode(env any, isErr bool) (*mcp.CallToolResult, any, error) {
 	b, err := json.Marshal(env)
 	if err != nil {
 		return toolError("internal error: could not encode the response: %v", err)

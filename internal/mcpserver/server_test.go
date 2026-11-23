@@ -570,7 +570,7 @@ func TestSourceStatus(t *testing.T) {
 	_, r = call(t, cs2, "source_status", nil)
 	json.Unmarshal(r.Data, &d)
 	last := d.Sources[len(d.Sources)-1]
-	if last.ID != "faa.nms.notam" || last.Status != "not_configured" || len(r.Provenance.NotConsulted) != 1 {
+	if last.ID != "faa.nms.notam" || last.Status != "not_enabled" || len(r.Provenance.NotConsulted) != 1 {
 		t.Errorf("last = %+v", last)
 	}
 }
@@ -703,7 +703,7 @@ func TestAirworthyIsOnEveryResponse(t *testing.T) {
 	for _, airworthy := range []bool{false, true} {
 		u := newUpstreams(t)
 		cs := connect(t, u.deps(t, true, airworthy))
-		off := connect(t, u.deps(t, false, airworthy)) // NOTAMs not configured
+		off := connect(t, u.deps(t, false, airworthy)) // NOTAMs not enabled
 		calls := []struct {
 			cs   *mcp.ClientSession
 			name string
