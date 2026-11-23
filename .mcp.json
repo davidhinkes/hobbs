@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "hobbs": {
+      "type": "http",
+      "url": "https://hobbs.up.railway.app/mcp"
+    }
+  }
+}
