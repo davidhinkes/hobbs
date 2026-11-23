@@ -133,6 +133,10 @@ func oneOf(v string, allowed []string) (string, bool) {
 	return "", false
 }
 
+// Validate reports whether the API would accept q, without sending anything.
+// The error wraps ErrBadQuery.
+func (q Query) Validate() error { return q.validate() }
+
 func (q Query) validate() error {
 	bad := func(f string, a ...any) error { return fmt.Errorf("%w: %s", ErrBadQuery, fmt.Sprintf(f, a...)) }
 	if q.Classification != "" {

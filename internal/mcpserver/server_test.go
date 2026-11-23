@@ -3,10 +3,13 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -33,16 +36,19 @@ func fixture(t *testing.T, parts ...string) []byte {
 type upstreams struct {
 	awcSrv, nmsSrv *httptest.Server
 	mu             sync.Mutex
-	awcFail        map[string]int // path -> status to return instead of the fixture
-	nmsFail        int            // status to return for notam queries
+	awcFail        map[string]int    // path -> status to return instead of the fixture
+	nmsFail        int               // status to return for notam queries
+	nmsFailFor     map[string]int    // location -> status, for that location only
+	nmsBodyFor     map[string][]byte // location -> body instead of the fixture
 	lastNotamQuery map[string]string
+	notamQueries   []map[string]string // every query, in arrival order
 	lastNotamHdr   http.Header
 	awcCalls       map[string]int
 }
 
 func newUpstreams(t *testing.T) *upstreams {
 	t.Helper()
-	u := &upstreams{awcFail: map[string]int{}, lastNotamQuery: map[string]string{}, awcCalls: map[string]int{}}
+	u := &upstreams{awcFail: map[string]int{}, nmsFailFor: map[string]int{}, nmsBodyFor: map[string][]byte{}, lastNotamQuery: map[string]string{}, awcCalls: map[string]int{}}
 	files := map[string]string{"/airsigmet": "airsigmet.json", "/gairmet": "gairmet.json", "/isigmet": "isigmet.json", "/cwa": "cwa.json"}
 	u.awcSrv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u.mu.Lock()
@@ -78,14 +84,23 @@ func newUpstreams(t *testing.T) *upstreams {
 			for k, v := range r.URL.Query() {
 				u.lastNotamQuery[k] = v[0]
 			}
+			u.notamQueries = append(u.notamQueries, u.lastNotamQuery)
 			fail := u.nmsFail
+			loc := r.URL.Query().Get("location")
+			if f := u.nmsFailFor[loc]; f != 0 {
+				fail = f
+			}
+			body := u.nmsBodyFor[loc]
 			u.mu.Unlock()
 			if fail != 0 {
 				w.WriteHeader(fail)
 				w.Write([]byte(`{"status":"Failure","message":"boom"}`))
 				return
 			}
-			w.Write(fixture(t, "nms", "notams_sample.json"))
+			if body == nil {
+				body = fixture(t, "nms", "notams_sample.json")
+			}
+			w.Write(body)
 		}
 	}))
 	t.Cleanup(func() { u.awcSrv.Close(); u.nmsSrv.Close() })
@@ -226,7 +241,7 @@ func TestToolsAreListedWithTheContractInTheirDescriptions(t *testing.T) {
 	}
 	// Input schemas expose the filters as properties.
 	b, _ := json.Marshal(got["get_notams"].InputSchema)
-	for _, p := range []string{"location", "radius_nm", "effective_start", "free_text", "classification"} {
+	for _, p := range []string{"locations", "add_centers", "radius_nm", "effective_start", "free_text", "classification"} {
 		if !strings.Contains(string(b), `"`+p+`"`) {
 			t.Errorf("get_notams schema lacks %q: %s", p, b)
 		}
@@ -413,12 +428,20 @@ func TestNotamsForwardFiltersAndSayWhoAppliedThem(t *testing.T) {
 	u := newUpstreams(t)
 	cs := connect(t, u.deps(t, true, false))
 
-	res, r := call(t, cs, "get_notams", map[string]any{"location": "KIAD", "classification": "domestic", "free_text": "TWY"})
+	res, r := call(t, cs, "get_notams", map[string]any{"locations": []string{"KIAD"}, "classification": "domestic", "free_text": "TWY"})
 	if res.IsError {
 		t.Fatal(text(res))
 	}
-	if u.lastNotamQuery["location"] != "KIAD" || u.lastNotamQuery["classification"] != "DOMESTIC" || u.lastNotamQuery["freeText"] != "TWY" {
-		t.Errorf("forwarded = %v", u.lastNotamQuery)
+	// One query for KIAD, then one for the center its NOTAMs list (ZDC), each
+	// with the same filters.
+	if len(u.notamQueries) != 2 {
+		t.Fatalf("queries = %v", u.notamQueries)
+	}
+	for i, loc := range []string{"KIAD", "ZDC"} {
+		q := u.notamQueries[i]
+		if q["location"] != loc || q["classification"] != "DOMESTIC" || q["freeText"] != "TWY" {
+			t.Errorf("forwarded[%d] = %v", i, q)
+		}
 	}
 	if u.lastNotamHdr.Get("nmsResponseFormat") != "GEOJSON" || u.lastNotamHdr.Get("Authorization") != "Bearer tok" {
 		t.Errorf("headers = %v", u.lastNotamHdr)
@@ -434,7 +457,7 @@ func TestNotamsForwardFiltersAndSayWhoAppliedThem(t *testing.T) {
 		} `json:"notams"`
 	}
 	json.Unmarshal(r.Data, &d)
-	if d.Filters.BySource["location"] != "KIAD" || d.Filters.BySource["classification"] != "DOMESTIC" || len(d.Filters.ByServer) != 0 {
+	if d.Filters.BySource["location"] != "KIAD,ZDC" || d.Filters.BySource["classification"] != "DOMESTIC" || len(d.Filters.ByServer) != 0 {
 		t.Errorf("filters = %+v: every NOTAM filter belongs to the FAA, none to us", d.Filters)
 	}
 	if len(d.NOTAMs) != 16 {
@@ -459,7 +482,7 @@ func TestNotamsForwardFiltersAndSayWhoAppliedThem(t *testing.T) {
 
 	// Airworthy: no mark.
 	cs2 := connect(t, u.deps(t, true, true))
-	_, r = call(t, cs2, "get_notams", map[string]any{"location": "KIAD"})
+	_, r = call(t, cs2, "get_notams", map[string]any{"locations": []string{"KIAD"}})
 	if r.hasIssue("NOT_AIRWORTHY", "") || r.Airworthy == nil || !*r.Airworthy {
 		t.Error("an airworthy server must say airworthy: true and carry no mark")
 	}
@@ -475,13 +498,13 @@ func TestNotamRequestErrorsAreCorrectableByTheAgent(t *testing.T) {
 		"no filter":              {map[string]any{}, "at least one filter"},
 		"lat without radius":     {map[string]any{"latitude": 38.9, "longitude": -77.4}, "together"},
 		"radius too big":         {map[string]any{"latitude": 38.9, "longitude": -77.4, "radius_nm": 150.0}, "radius"},
-		"short classification":   {map[string]any{"location": "KIAD", "classification": "DOM"}, "DOMESTIC, INTERNATIONAL"},
+		"short classification":   {map[string]any{"locations": []string{"KIAD"}, "classification": "DOM"}, "DOMESTIC, INTERNATIONAL"},
 		"classification alone":   {map[string]any{"classification": "FDC"}, "classification alone"},
 		"bad timestamp":          {map[string]any{"effective_start": "tomorrow", "effective_end": "2026-11-23T20:00:00Z"}, "effective_start must be an RFC 3339"},
 		"bad last_updated":       {map[string]any{"last_updated": "yesterday"}, "last_updated must be an RFC 3339"},
 		"window missing an end":  {map[string]any{"effective_start": "2026-11-23T12:00:00Z"}, "together"},
 		"number without a place": {map[string]any{"notam_number": "08/224"}, "location or accountability"},
-		"unknown feature":        {map[string]any{"location": "KIAD", "feature": "RUNWAY"}, "RWY"},
+		"unknown feature":        {map[string]any{"locations": []string{"KIAD"}, "feature": "RUNWAY"}, "RWY"},
 	}
 	for name, tt := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -499,7 +522,7 @@ func TestNotamRequestErrorsAreCorrectableByTheAgent(t *testing.T) {
 func TestNotamsWhenTheSourceIsUnavailable(t *testing.T) {
 	// Not configured: say so, mark incomplete, never an empty list that reads as "none".
 	cs := connect(t, newUpstreams(t).deps(t, false, false))
-	res, r := call(t, cs, "get_notams", map[string]any{"location": "KIAD"})
+	res, r := call(t, cs, "get_notams", map[string]any{"locations": []string{"KIAD"}})
 	if !res.IsError || r.Completeness.Status != "incomplete" || len(r.Provenance.NotConsulted) != 1 || r.Provenance.NotConsulted[0].ID != "faa.nms.notam" {
 		t.Errorf("isError=%v status=%s notConsulted=%+v", res.IsError, r.Completeness.Status, r.Provenance.NotConsulted)
 	}
@@ -511,8 +534,8 @@ func TestNotamsWhenTheSourceIsUnavailable(t *testing.T) {
 	u := newUpstreams(t)
 	u.nmsFail = 500
 	cs = connect(t, u.deps(t, true, true))
-	res, r = call(t, cs, "get_notams", map[string]any{"location": "KIAD"})
-	if !res.IsError || !r.hasIssue("SOURCE_UNAVAILABLE", "faa.nms.notam") || r.Completeness.Status != "incomplete" {
+	res, r = call(t, cs, "get_notams", map[string]any{"locations": []string{"KIAD"}})
+	if !res.IsError || !r.hasIssue("SOURCE_UNAVAILABLE", "faa.nms.notam:KIAD") || r.Completeness.Status != "incomplete" {
 		t.Errorf("isError=%v status=%s issues=%+v", res.IsError, r.Completeness.Status, r.Completeness.Issues)
 	}
 	if strings.Contains(text(res), "secret-0000000") {
@@ -627,7 +650,7 @@ func TestCallerChosenLimitIsReportedNotSilent(t *testing.T) {
 	}
 
 	// NOTAMs: same contract.
-	res, r = call(t, cs, "get_notams", map[string]any{"location": "KIAD", "limit": 3})
+	res, r = call(t, cs, "get_notams", map[string]any{"locations": []string{"KIAD"}, "limit": 3})
 	var nd struct {
 		NOTAMs []json.RawMessage `json:"notams"`
 	}
@@ -641,7 +664,7 @@ func TestCallerChosenLimitIsReportedNotSilent(t *testing.T) {
 		for _, tool := range []string{"get_weather_advisories", "get_notams"} {
 			args := map[string]any{"limit": bad}
 			if tool == "get_notams" {
-				args["location"] = "KIAD"
+				args["locations"] = []string{"KIAD"}
 			}
 			if res, _ := call(t, cs, tool, args); !res.IsError || !strings.Contains(text(res), "limit must be between") {
 				t.Errorf("%s limit=%d: isError=%v %q", tool, bad, res.IsError, text(res))
@@ -682,11 +705,11 @@ func TestGeometryCanBeOmittedOnRequestAndSaysSo(t *testing.T) {
 	if g, n, om := hasGeom(r.Data, "advisories"); g != 0 || n != 34 || len(om) != 1 || om[0] != "geometry" {
 		t.Errorf("geometry must be omitted and declared: geom=%d total=%d omitted=%v", g, n, om)
 	}
-	_, r = call(t, cs, "get_notams", map[string]any{"location": "KIAD"})
+	_, r = call(t, cs, "get_notams", map[string]any{"locations": []string{"KIAD"}})
 	if g, _, om := hasGeom(r.Data, "notams"); g == 0 || len(om) != 0 {
 		t.Errorf("default notams must include geometry: %d %v", g, om)
 	}
-	_, r = call(t, cs, "get_notams", map[string]any{"location": "KIAD", "include_geometry": false})
+	_, r = call(t, cs, "get_notams", map[string]any{"locations": []string{"KIAD"}, "include_geometry": false})
 	if g, n, om := hasGeom(r.Data, "notams"); g != 0 || n != 16 || len(om) != 1 || om[0] != "geometry" {
 		t.Errorf("geometry must be omitted and declared: geom=%d total=%d omitted=%v", g, n, om)
 	}
@@ -710,9 +733,9 @@ func TestAirworthyIsOnEveryResponse(t *testing.T) {
 			args map[string]any
 		}{
 			{cs, "get_weather_advisories", nil},
-			{cs, "get_notams", map[string]any{"location": "KIAD"}},
+			{cs, "get_notams", map[string]any{"locations": []string{"KIAD"}}},
 			{cs, "source_status", nil},
-			{off, "get_notams", map[string]any{"location": "KIAD"}},
+			{off, "get_notams", map[string]any{"locations": []string{"KIAD"}}},
 		}
 		for _, c := range calls {
 			_, r := call(t, c.cs, c.name, c.args)
@@ -740,5 +763,175 @@ func TestAirworthyIsOnEveryResponse(t *testing.T) {
 		if got := strings.HasPrefix(cs.InitializeResult().Instructions, "NOT AIRWORTHY:"); got == airworthy {
 			t.Errorf("airworthy=%v: server instructions prefixed=%v", airworthy, got)
 		}
+	}
+}
+
+// notamsReply is the part of get_notams data the location tests inspect.
+type notamsReply struct {
+	Filters struct {
+		BySource map[string]string `json:"applied_by_source"`
+	} `json:"filters"`
+	Locations *struct {
+		Requested []string `json:"requested"`
+		Added     []struct {
+			Location string   `json:"location"`
+			ListedOn []string `json:"listed_on"`
+			Refs     []string `json:"refs"`
+		} `json:"added"`
+		Note string `json:"note"`
+	} `json:"locations"`
+	NOTAMs []struct {
+		ID          string   `json:"id"`
+		ReturnedFor []string `json:"returned_for"`
+	} `json:"notams"`
+}
+
+func (u *upstreams) queriedLocations() []string {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	var out []string
+	for _, q := range u.notamQueries {
+		out = append(out, q["location"])
+	}
+	sort.Strings(out)
+	return out
+}
+
+func TestNotamLocationsAreMergedAndTheirCenterAdded(t *testing.T) {
+	u := newUpstreams(t)
+	cs := connect(t, u.deps(t, true, false))
+
+	// Every fixture NOTAM lists ZDC as its center, and both airports return
+	// the same records: one copy each, returned for all three queries.
+	res, r := call(t, cs, "get_notams", map[string]any{"locations": []string{"KIAD", "kiad", " KDCA "}, "include_geometry": false})
+	if res.IsError {
+		t.Fatal(text(res))
+	}
+	if got := u.queriedLocations(); strings.Join(got, ",") != "KDCA,KIAD,ZDC" {
+		t.Errorf("queried = %v: one query per distinct identifier, plus the center", got)
+	}
+	var d notamsReply
+	json.Unmarshal(r.Data, &d)
+	if d.Locations == nil || strings.Join(d.Locations.Requested, ",") != "KIAD,KDCA" || d.Locations.Note != centersNotInferred {
+		t.Fatalf("locations = %+v", d.Locations)
+	}
+	if len(d.Locations.Added) != 1 || d.Locations.Added[0].Location != "ZDC" ||
+		strings.Join(d.Locations.Added[0].ListedOn, ",") != "KIAD,KDCA" || len(d.Locations.Added[0].Refs) == 0 {
+		t.Errorf("added = %+v", d.Locations.Added)
+	}
+	if d.Filters.BySource["location"] != "KIAD,KDCA,ZDC" {
+		t.Errorf("applied_by_source = %v", d.Filters.BySource)
+	}
+	if len(d.NOTAMs) != 16 {
+		t.Errorf("notams = %d, want 16: a NOTAM returned by several queries appears once", len(d.NOTAMs))
+	}
+	for _, n := range d.NOTAMs {
+		if strings.Join(n.ReturnedFor, ",") != "KIAD,KDCA,ZDC" {
+			t.Errorf("%s returned_for = %v", n.ID, n.ReturnedFor)
+		}
+	}
+	ids := map[string]int{}
+	for _, s := range r.Provenance.Sources {
+		ids[s.ID] = s.RecordsReturned
+	}
+	for _, id := range []string{"faa.nms.notam:KIAD", "faa.nms.notam:KDCA", "faa.nms.notam:ZDC"} {
+		if ids[id] != 16 {
+			t.Errorf("source %s records_returned = %d (sources %v)", id, ids[id], ids)
+		}
+	}
+	if r.hasIssue("CENTER_NOT_IMPLIED", "") {
+		t.Error("every location listed a center")
+	}
+}
+
+func TestNotamCentersAreOnlyAddedWhenWantedAndNew(t *testing.T) {
+	// Turned off: only what was asked for.
+	u := newUpstreams(t)
+	cs := connect(t, u.deps(t, true, false))
+	_, r := call(t, cs, "get_notams", map[string]any{"locations": []string{"KIAD"}, "add_centers": false})
+	var d notamsReply
+	json.Unmarshal(r.Data, &d)
+	if got := u.queriedLocations(); strings.Join(got, ",") != "KIAD" || len(d.Locations.Added) != 0 {
+		t.Errorf("queried = %v added = %+v", got, d.Locations.Added)
+	}
+
+	// Already listed, in the other spelling: not asked for twice.
+	u = newUpstreams(t)
+	cs = connect(t, u.deps(t, true, false))
+	_, r = call(t, cs, "get_notams", map[string]any{"locations": []string{"KIAD", "KZDC"}})
+	d = notamsReply{}
+	json.Unmarshal(r.Data, &d)
+	if got := u.queriedLocations(); strings.Join(got, ",") != "KIAD,KZDC" || len(d.Locations.Added) != 0 {
+		t.Errorf("queried = %v added = %+v", got, d.Locations.Added)
+	}
+
+	// No locations: no center logic at all.
+	u = newUpstreams(t)
+	cs = connect(t, u.deps(t, true, false))
+	_, r = call(t, cs, "get_notams", map[string]any{"latitude": 38.95, "longitude": -77.45, "radius_nm": 5.0})
+	d = notamsReply{}
+	json.Unmarshal(r.Data, &d)
+	if got := u.queriedLocations(); len(got) != 1 || got[0] != "" || d.Locations != nil || r.Provenance.Sources[0].ID != "faa.nms.notam" {
+		t.Errorf("queried = %v locations = %+v sources = %+v", got, d.Locations, r.Provenance.Sources)
+	}
+}
+
+func TestNotamCenterThatCannotBeImpliedIsAWarning(t *testing.T) {
+	u := newUpstreams(t)
+	noFIR := regexp.MustCompile(`"affectedFir":\s*"[^"]*",?`).ReplaceAll(fixture(t, "nms", "notams_sample.json"), nil)
+	u.nmsBodyFor["L45"] = noFIR
+	cs := connect(t, u.deps(t, true, true))
+	res, r := call(t, cs, "get_notams", map[string]any{"locations": []string{"L45"}})
+	if res.IsError {
+		t.Fatal(text(res))
+	}
+	if !r.hasIssue("CENTER_NOT_IMPLIED", "faa.nms.notam:L45") || r.Completeness.Status != "degraded" {
+		t.Errorf("status=%s issues=%+v: a location whose center cannot be found must say so", r.Completeness.Status, r.Completeness.Issues)
+	}
+	if got := u.queriedLocations(); strings.Join(got, ",") != "L45" {
+		t.Errorf("queried = %v", got)
+	}
+}
+
+func TestOneFailedLocationMakesTheResponseIncompleteNotEmpty(t *testing.T) {
+	u := newUpstreams(t)
+	u.nmsFailFor["KDCA"] = 503
+	cs := connect(t, u.deps(t, true, true))
+	res, r := call(t, cs, "get_notams", map[string]any{"locations": []string{"KIAD", "KDCA"}})
+	if res.IsError {
+		t.Fatalf("some data was obtained, so this is not an error: %s", text(res))
+	}
+	var d notamsReply
+	json.Unmarshal(r.Data, &d)
+	if r.Completeness.Status != "incomplete" || !r.hasIssue("SOURCE_UNAVAILABLE", "faa.nms.notam:KDCA") || len(d.NOTAMs) != 16 {
+		t.Errorf("status=%s notams=%d issues=%+v", r.Completeness.Status, len(d.NOTAMs), r.Completeness.Issues)
+	}
+	for _, n := range d.NOTAMs {
+		for _, l := range n.ReturnedFor {
+			if l == "KDCA" {
+				t.Fatalf("%s claims to come from the failed query", n.ID)
+			}
+		}
+	}
+}
+
+func TestNotamLocationsAreValidated(t *testing.T) {
+	u := newUpstreams(t)
+	cs := connect(t, u.deps(t, true, true))
+	many := make([]string, maxLocations+1)
+	for i := range many {
+		many[i] = fmt.Sprintf("K%03d", i)
+	}
+	for name, args := range map[string]map[string]any{
+		"too many": {"locations": many},
+		"empty":    {"locations": []string{"KIAD", " "}},
+	} {
+		res, _ := call(t, cs, "get_notams", args)
+		if !res.IsError {
+			t.Errorf("%s: want a correctable error", name)
+		}
+	}
+	if len(u.queriedLocations()) != 0 {
+		t.Error("nothing may be sent for a request that is refused")
 	}
 }

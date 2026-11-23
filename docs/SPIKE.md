@@ -53,6 +53,28 @@ Access: requested by email per the FAA NMS page; the FAA issued staging credenti
 - **A NOTAM `radius` of 999** means "no radius limit" in ICAO usage, not a 999 nm circle; no geometry is derived.
 - A 100 nm query around IAD returned 1,335 NOTAMs: 906 polygons, 402 points (756 of the total were circles from point plus radius), 21 multi-part areas, 6 multi-point; no polygon holes seen.
 
+### Radius search matches the NOTAM's point, not its area (2026-11-23)
+
+Question: does `latitude`/`longitude`/`radius` return NOTAMs whose **area** reaches into the search circle, or only those whose **reference point** is inside it? This decides whether a route can be searched by covering it with circles.
+
+Method: a 100 nm query around 38.95N 77.45W (1,427 NOTAMs) through the real server on staging, then small search circles placed inside large published NOTAM areas at increasing distances from their centres (bearing 090), with search radii of 1 and 5 nm.
+
+| NOTAM | Area | Found when the search circle's centre is this far from the NOTAM centre |
+|---|---|---|
+| `6/6180` (FDC, KIAD approach) | 25 nm circle | 0 nm (r=1, r=5) and 2.5 nm (r=5). **Not** found at 2.5 nm (r=1), or at 6.2, 12.5, 18.8 or 23.8 nm (either radius) |
+| `L0034/26` (MIL, KADW) | 11 nm circle | 0 nm (r=1, r=5), 1.1 and 2.8 nm (r=5). **Not** found at 1.1 nm (r=1), or at 5.5, 8.2 or 10.4 nm (either radius) |
+
+Result: a NOTAM is returned only when its reference point lies within the search radius. A search circle well inside a NOTAM's area, but farther than the search radius from that NOTAM's point, does not return it.
+
+Caveats and side findings:
+
+- Only 2 NOTAMs in this area have a published circle of 10 nm or more, so the sample is small. It is consistent: both tests in the first pass that placed a 1 nm circle inside a large area, more than 1 nm from its centre, also missed.
+- Some 5 nm route NOTAMs (`A1640/26` and others: airway segments between VORs) were found 3.9 nm off their circle centre with r=1. They publish several points, and the FAA may match any of them.
+- `A2444/26` has a Q-line centre about 195 nm from its published circle. The reference point the FAA searches by is not always the Q-line point.
+- One of about 70 searches failed upstream (`SOURCE_UNAVAILABLE`). The envelope reported it as `incomplete`, as designed.
+
+Consequence: radius search is not an area filter. An agent searching around a point or along a route will miss NOTAMs whose area reaches the point but whose reference point is farther away than the radius. Covering a route with circles cannot be made provably complete, because a NOTAM's area has no upper bound (Q-line radius 999 means a whole region), and text-only NOTAMs have no point at all.
+
 ### TFR site blocks this client (2026-11-23)
 
 The TFR adapter (`internal/source/tfr`) was built and tested against captured fixtures, and its detail format was verified by hand with `curl`. When the Go adapter itself called `tfr.faa.gov` live, the site answered **HTTP 403 "Access Denied"**, including for the list endpoint that `curl` had fetched successfully. That is an access control on the FAA's edge, not a bug we can fix in the parser. We did not try to get around it (varying headers or connection settings to look like another client): this is an undocumented endpoint and the block reads as intentional. Consequences:

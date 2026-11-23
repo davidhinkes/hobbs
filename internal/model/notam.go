@@ -63,6 +63,11 @@ type Notam struct {
 	IssuedAt    *time.Time `json:"issued_at,omitempty"`
 	LastUpdated *time.Time `json:"last_updated,omitempty"`
 
+	// ReturnedFor lists the location identifiers whose FAA query returned this
+	// NOTAM, when the caller asked for several. A NOTAM returned for more than
+	// one location appears once.
+	ReturnedFor []string `json:"returned_for,omitempty"`
+
 	// ParseIssues lists fields that could not be parsed. A record with parse
 	// issues is still returned, never dropped.
 	ParseIssues []string `json:"parse_issues,omitempty"`
