@@ -490,6 +490,8 @@ func TestQueryValidation(t *testing.T) {
 		{Latitude: f64(38.9), Longitude: f64(-77.4), RadiusNM: f64(25)},
 		{EffectiveStart: &t1, EffectiveEnd: &t2},
 		{Classification: "FDC", Location: "KIAD"},
+		{Classification: "domestic", Location: "KIAD"},
+		{Feature: "airspace", Location: "KIAD"},
 		{NotamNumber: "08/224", Location: "KIAD"},
 		{FreeText: "TWY"},
 		{RadiusNM: f64(0), Latitude: f64(-90), Longitude: f64(180)},
@@ -511,7 +513,10 @@ func TestQueryValidation(t *testing.T) {
 		"end without start":      {EffectiveEnd: &t2},
 		"end before start":       {EffectiveStart: &t2, EffectiveEnd: &t1},
 		"number alone":           {NotamNumber: "08/224"},
-		"classification alone":   {Classification: "DOM"},
+		"classification alone":   {Classification: "DOMESTIC"},
+		"short classification":   {Classification: "DOM", Location: "KIAD"},
+		"unknown classification": {Classification: "NOPE", Location: "KIAD"},
+		"unknown feature":        {Feature: "RUNWAY", Location: "KIAD"},
 	}
 	for name, q := range bad {
 		t.Run(name, func(t *testing.T) {
@@ -668,5 +673,40 @@ func TestPointAndCircleTranslation(t *testing.T) {
 	snap, _ = c.Query(context.Background(), q)
 	if d := snap.Items[0].GeometryDerivation; d == nil || len(d.Steps) != 1 || d.Steps[0] != "ring_reoriented" {
 		t.Errorf("derivation = %+v", d)
+	}
+}
+
+// The API wants long classification names (it rejects DOM), case-insensitively.
+func TestClassificationAndFeatureAreNormalizedForTheAPI(t *testing.T) {
+	v := Query{Location: "KIAD", Classification: "domestic", Feature: "airspace"}.params()
+	if v.Get("classification") != "DOMESTIC" || v.Get("feature") != "AIRSPACE" {
+		t.Errorf("params = %v", v)
+	}
+	if got := (Query{Location: "KIAD", Classification: "fdc"}).Applied(); got["classification"] != "FDC" || got["location"] != "KIAD" || len(got) != 2 {
+		t.Errorf("Applied = %v", got)
+	}
+}
+
+func TestPing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/auth/token":
+			w.Write([]byte(`{"access_token":"t","expires_in":"1799"}`))
+		case "/nmsapi/v1/ping":
+			if r.Header.Get("Authorization") != "Bearer t" {
+				w.WriteHeader(401)
+				return
+			}
+			w.Write([]byte("Healthy 200 OK"))
+		}
+	}))
+	defer srv.Close()
+	c, _ := NewClient(Config{Host: srv.URL, ClientID: testID, ClientSecret: testSecret})
+	if st, err := c.Ping(context.Background()); err != nil || st != 200 {
+		t.Errorf("ping = %d %v", st, err)
+	}
+	bad, _ := NewClient(Config{Host: "http://127.0.0.1:1", ClientID: testID, ClientSecret: testSecret})
+	if _, err := bad.Ping(context.Background()); !errors.Is(err, ErrUpstream) || strings.Contains(err.Error(), testSecret) {
+		t.Errorf("unreachable ping = %v", err)
 	}
 }

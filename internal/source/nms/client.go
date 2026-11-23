@@ -112,15 +112,42 @@ type Query struct {
 	EffectiveStart *time.Time
 	EffectiveEnd   *time.Time
 	LastUpdated    *time.Time // API limits this to the previous 24 hours
-	Classification string     // DOM, INTL, FDC, MIL; with no other filter the API returns a download link, which this client does not support
+	Classification string     // one of Classifications (case-insensitive; the API wants the long names, e.g. DOMESTIC, while responses report DOM); with no other filter the API returns a download link, which this client does not support
 	Accountability string
-	Feature        string
+	Feature        string // one of Features (case-insensitive)
 	FreeText       string
 	NotamNumber    string // needs Location or Accountability
 }
 
+// Classifications and Features are the values the API accepts (from its
+// OpenAPI spec, confirmed live for classification).
+var (
+	Classifications = []string{"DOMESTIC", "INTERNATIONAL", "MILITARY", "LOCAL_MILITARY", "FDC"}
+	Features        = []string{"RWY", "TWY", "APRON", "AD", "OBST", "NAV", "COM", "SVC", "AIRSPACE", "ODP", "SID", "STAR",
+		"CHART", "DATA", "DVA", "IAP", "VFP", "ROUTE", "SPECIAL", "SECURITY"}
+)
+
+func oneOf(v string, allowed []string) (string, bool) {
+	for _, a := range allowed {
+		if strings.EqualFold(v, a) {
+			return a, true
+		}
+	}
+	return "", false
+}
+
 func (q Query) validate() error {
 	bad := func(f string, a ...any) error { return fmt.Errorf("%w: %s", ErrBadQuery, fmt.Sprintf(f, a...)) }
+	if q.Classification != "" {
+		if _, ok := oneOf(q.Classification, Classifications); !ok {
+			return bad("classification %q is not one of %s", q.Classification, strings.Join(Classifications, ", "))
+		}
+	}
+	if q.Feature != "" {
+		if _, ok := oneOf(q.Feature, Features); !ok {
+			return bad("feature %q is not one of %s", q.Feature, strings.Join(Features, ", "))
+		}
+	}
 	geo := 0
 	for _, set := range []bool{q.Latitude != nil, q.Longitude != nil, q.RadiusNM != nil} {
 		if set {
@@ -186,9 +213,13 @@ func (q Query) params() url.Values {
 	set("effectiveStartDate", ts(q.EffectiveStart))
 	set("effectiveEndDate", ts(q.EffectiveEnd))
 	set("lastUpdatedDate", ts(q.LastUpdated))
-	set("classification", q.Classification)
+	if c, ok := oneOf(q.Classification, Classifications); ok {
+		set("classification", c)
+	}
 	set("accountability", q.Accountability)
-	set("feature", q.Feature)
+	if f, ok := oneOf(q.Feature, Features); ok {
+		set("feature", f)
+	}
 	set("freeText", q.FreeText)
 	set("notamNumber", q.NotamNumber)
 	return v
@@ -435,4 +466,54 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+// Applied reports the filters this query forwards to the NMS-API, by the API's
+// own parameter names. These are filters the source applies, not the server.
+func (q Query) Applied() map[string]string {
+	out := map[string]string{}
+	for k, v := range q.params() {
+		out[k] = v[0]
+	}
+	return out
+}
+
+// Host returns the API host this client talks to.
+func (c *Client) Host() string { return c.cfg.Host }
+
+// Production reports whether the client is configured for the operational service.
+func (c *Client) Production() bool { return c.cfg.Production }
+
+// Ping checks that credentials work and the service is up: it obtains a token
+// and calls the API's ping endpoint. It returns the HTTP status of the ping.
+func (c *Client) Ping(ctx context.Context) (int, error) {
+	for attempt := 0; attempt < 2; attempt++ {
+		tok, err := c.accessToken(ctx, attempt > 0)
+		if err != nil {
+			return 0, err
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.cfg.Host+"/nmsapi/v1/ping", nil)
+		if err != nil {
+			return 0, fmt.Errorf("%w: building request", ErrUpstream)
+		}
+		req.Header.Set("Authorization", "Bearer "+tok)
+		resp, err := c.http.Do(req)
+		if err != nil {
+			return 0, fmt.Errorf("%w: ping failed", ErrUpstream)
+		}
+		io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusUnauthorized && attempt == 0 {
+			c.invalidate()
+			continue
+		}
+		if resp.StatusCode == http.StatusUnauthorized {
+			return resp.StatusCode, ErrAuth
+		}
+		if resp.StatusCode != http.StatusOK {
+			return resp.StatusCode, fmt.Errorf("%w: ping returned HTTP %d", ErrUpstream, resp.StatusCode)
+		}
+		return resp.StatusCode, nil
+	}
+	return 0, ErrAuth
 }

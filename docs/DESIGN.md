@@ -191,16 +191,23 @@ Not translated, so the geometry is left empty and the record is flagged (`GEOMET
 
 This is translation only. There is no intersection, containment or "does this apply" logic anywhere (§0).
 
-## 5. Tools (v1)
+## 5. Tools (v1, built)
 
-There is deliberately no `check_route`. Each tool returns what the official source publishes, shaped consistently, and says who filtered it.
+Three tools, all read-only, all returning the §1 envelope. There is deliberately no `check_route` and, for now, no `get_tfrs` (see §3 and SPIKE.md: no official TFR source we can use).
 
-- `get_notams`: forwards the NMS-API's own filters (`location`, `latitude`/`longitude`/`radius_nm` up to 100, effective window, `last_updated`, `classification`, `free_text`, `notam_number`). Returns NOTAMs with raw text in every rendering the source supplied, structured fields and `parse_issues`. The response lists those filters under `applied_by_source`.
-- `get_tfrs` (**not available until the FAA answers the open questions in §7**; see SPIKE.md): the full published TFR set (optionally narrowed by exact match on `state`, `facility` or `type`, which the source publishes), each with the FAA's text, dates and altitudes, and geometry only where it is stated plainly. Text-only TFRs are returned with no geometry and a `GEOMETRY_UNAVAILABLE` issue.
-- `get_weather_advisories`: the full published SIGMET, G-AIRMET, international SIGMET and CWA sets (optionally narrowed by `kind` and `hazard`), with raw text where the source gives it and the original upstream fields alongside our normalized ones.
-- `source_status`: per-source freshness, last success and failure, production versus staging, and endpoint documentation status.
+- **`get_notams`**: forwards the NMS-API's own filters (`location`, `latitude`/`longitude`/`radius_nm` up to 100, `effective_start`/`effective_end`, `last_updated`, `classification`, `feature`, `accountability`, `free_text`, `notam_number`). At least one filter is required. The response's `filters.applied_by_source` lists exactly what the FAA applied; `applied_by_server` is empty. Each NOTAM has its raw text in every rendering the source supplied, the published fields, canonical geometry (§4a) and `parse_issues`. TFRs appear as FDC NOTAMs with text and dates; outlines are not available from this source. Requests the API would reject (bad classification, a radius without a position, a malformed timestamp, no filter) are refused before anything is sent, with an error that names the problem.
+- **`get_weather_advisories`**: the complete current SIGMET, graphical AIRMET, international SIGMET and CWA sets from NOAA AWC, optionally narrowed by `kinds` (which feeds to read) and an exact-match `hazard` applied by this server and declared in `applied_by_server`. Advisories come in a fixed feed order, each feed in the source's own order.
+- **`source_status`**: checks every source live (no cache): reachable or not, latency, production versus staging, documented API or not.
 
-Few tools, structured compact JSON, strict input validation with field-specific errors. Any caller-chosen `limit` is explicit and reports how many items were omitted; there is no default cap.
+Caller-chosen shaping, never silent: `limit` (no default cap; if items are omitted the response carries a `RESULT_TRUNCATED` warning and is not `complete`) and `include_geometry: false` (the response lists `omitted_fields: ["geometry"]`). A call that obtained no data at all returns `isError: true` together with the envelope; a partial failure returns the data plus a `critical` `SOURCE_UNAVAILABLE` issue and status `incomplete`.
+
+Input errors come back as `isError` results with a message the agent can act on, and invalid NOTAM requests never reach the FAA.
+
+### Transports and hosting
+
+- **stdio** (default) for a local MCP client.
+- **Streamable HTTP** (`-http :8080`, or just set `PORT`): stateless, at `/mcp`, with an open `/healthz`. It refuses to start without at least one bearer token (`HOBBS_TOKENS`, each at least 16 characters) and applies a global rate limit (`HOBBS_RATE`, `HOBBS_BURST`; default 5 per second, burst 10) so a runaway agent loop cannot exhaust upstream quotas. Unauthenticated requests never reach a source and do not consume the rate budget.
+- Secrets only in environment variables (`HOBBS_TOKENS`, `NMS_CLIENT_ID`, `NMS_CLIENT_SECRET`); on Railway, as service variables. Logs go to stderr and never contain credentials.
 
 ## 6. Safety and trust
 

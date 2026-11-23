@@ -12,3 +12,4 @@ credentials*
 /bin/
 *.test
 *.out
+/hobbs
