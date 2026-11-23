@@ -64,9 +64,9 @@ func TestLiveStdio(t *testing.T) {
 	summarize("source_status", nil)
 	summarize("get_weather_advisories", nil)
 	summarize("get_weather_advisories", map[string]any{"kinds": []string{"AIRMET"}, "hazard": "TURB-HI"})
-	summarize("get_notams", map[string]any{"location": "KIAD", "classification": "FDC"})
+	summarize("get_notams", map[string]any{"locations": []string{"KSMO", "KEMT"}, "include_geometry": false})
 	summarize("get_notams", map[string]any{"latitude": 38.95, "longitude": -77.45, "radius_nm": 10.0})
 	summarize("get_notams", map[string]any{"latitude": 38.95, "longitude": -77.45, "radius_nm": 10.0, "include_geometry": false})
 	summarize("get_notams", map[string]any{"latitude": 38.95, "longitude": -77.45, "radius_nm": 10.0, "include_geometry": false, "limit": 50})
-	summarize("get_notams", map[string]any{"location": "KIAD", "classification": "DOM"}) // a correctable mistake
+	summarize("get_notams", map[string]any{"locations": []string{"KIAD"}, "classification": "DOM"}) // a correctable mistake
 }

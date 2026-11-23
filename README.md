@@ -10,7 +10,7 @@ The server only makes data available (uniform, consistent, available). It does n
 
 | Tool | What it does |
 |---|---|
-| `get_notams` | NOTAMs from the FAA NMS-API, filtered by the FAA's own filters (location, area, time window, ...) |
+| `get_notams` | NOTAMs from the FAA NMS-API, filtered by the FAA's own filters: a list of airports and en-route centers (with each airport's center added), a point and radius, a time window, ... |
 | `get_weather_advisories` | The full current SIGMET / AIRMET / international SIGMET / CWA sets |
 | `source_status` | Live health of each source |
 

@@ -112,6 +112,7 @@ Rules that follow:
 | `RESULT_TRUNCATED` | Output limited; count of omitted items given |
 | `SOURCE_NOT_ENABLED` | Source configured off (e.g. NOTAMs pending FAA access) |
 | `NOT_AIRWORTHY` | The server is not airworthy (§5): every response from every tool carries it, so nothing reads as complete |
+| `CENTER_NOT_IMPLIED` | `get_notams` with `locations`: no NOTAM returned for a location lists an en-route center, so none was added for it (warning) |
 | `CLOCK_SKEW` | Upstream timestamps inconsistent with our clock |
 
 We make no assumptions about applicability: unknown stays unknown, and the server never decides whether something applies to a flight. See the scope rule in §2.
@@ -130,6 +131,7 @@ In scope:
 - Fetching, parsing and normalizing official data into structured form (format, not meaning), with the raw text preserved and the original source fields kept alongside any interpretation.
 - Forwarding the filters an official API supports (e.g. the NMS-API's location, point-and-radius, effective-time and classification filters) and **saying in the response that the source applied them**. The filtering is the FAA's, not ours.
 - Where the source offers no filter (AWC and the TFR feed give no usable area filter), returning the full published set, optionally narrowed only by exact match on a field the source itself publishes (e.g. a TFR's state, or an advisory's hazard).
+- Asking the source once per identifier the caller lists and merging the results, and adding the en-route center the source itself lists on those results (see §5). This only ever adds queries; it never narrows a result.
 - Being honest about gaps (§1).
 
 Non-goals:
@@ -195,7 +197,10 @@ This is translation only. There is no intersection, containment or "does this ap
 
 Three tools, all read-only, all returning the §1 envelope. There is deliberately no `check_route` and, for now, no `get_tfrs` (see §3 and SPIKE.md: no official TFR source we can use).
 
-- **`get_notams`**: forwards the NMS-API's own filters (`location`, `latitude`/`longitude`/`radius_nm` up to 100, `effective_start`/`effective_end`, `last_updated`, `classification`, `feature`, `accountability`, `free_text`, `notam_number`). At least one filter is required. The response's `filters.applied_by_source` lists exactly what the FAA applied; `applied_by_server` is empty. Each NOTAM has its raw text in every rendering the source supplied, the published fields, canonical geometry (§4a) and `parse_issues`. TFRs appear as FDC NOTAMs with text and dates; outlines are not available from this source. Requests the API would reject (bad classification, a radius without a position, a malformed timestamp, no filter) are refused before anything is sent, with an error that names the problem.
+- **`get_notams`**: forwards the NMS-API's own filters (`locations`, `latitude`/`longitude`/`radius_nm` up to 100, `effective_start`/`effective_end`, `last_updated`, `classification`, `feature`, `accountability`, `free_text`, `notam_number`). At least one filter is required. The response's `filters.applied_by_source` lists exactly what the FAA applied; `applied_by_server` is empty. Each NOTAM has its raw text in every rendering the source supplied, the published fields, canonical geometry (§4a) and `parse_issues`. TFRs appear as FDC NOTAMs with text and dates; outlines are not available from this source. Requests the API would reject (bad classification, a radius without a position, a malformed timestamp, no filter) are refused before anything is sent, with an error that names the problem.
+  - **A flight is a list of identifiers, not a route.** `locations` takes up to 10 airports and en-route centers (ARTCCs). The FAA is asked once per identifier, with the other filters applied to each; the results are merged, and a NOTAM returned for several identifiers appears once with `returned_for` listing them (keyed on the FAA's unique NMS id). Each query is its own provenance source (`faa.nms.notam:KSMO`), so a failed identifier makes the response `incomplete` without hiding the others.
+  - **Implied centers** (`add_centers`, default true): the en-route center the FAA lists on the NOTAMs of a requested location (`affectedFir`) is also asked for, and named under `locations.added` with the NOTAMs that list it. `ZLA` and `KZLA` count as the same. It is one round, never recursive. A location whose NOTAMs list no center gets a `CENTER_NOT_IMPLIED` warning. **Centers between the locations are never inferred**: that would need the route's geometry and the centers' boundaries, which is the logic §4 rules out. Every response that used `locations` says so in `locations.note`.
+  - **Point and radius is not an area filter**: the FAA matches each NOTAM's reference point, not its area (SPIKE.md, 2026-11-23). The parameter description says so.
 - **`get_weather_advisories`**: the complete current SIGMET, graphical AIRMET, international SIGMET and CWA sets from NOAA AWC, optionally narrowed by `kinds` (which feeds to read) and an exact-match `hazard` applied by this server and declared in `applied_by_server`. Advisories come in a fixed feed order, each feed in the source's own order.
 - **`source_status`**: checks every source live (no cache): reachable or not, latency, production versus staging, documented API or not.
 

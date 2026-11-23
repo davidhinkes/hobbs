@@ -88,6 +88,7 @@ const (
 	ClockSkew            Code = "CLOCK_SKEW"
 	AltitudeAssumed      Code = "ALTITUDE_ASSUMED"
 	NotAirworthy         Code = "NOT_AIRWORTHY"
+	CenterNotImplied     Code = "CENTER_NOT_IMPLIED"
 )
 
 var knownCodes = map[Code]bool{
@@ -95,6 +96,7 @@ var knownCodes = map[Code]bool{
 	GeometryUnavailable: true, GeometryPartial: true, GeometryNotArea: true,
 	AltitudeUnknown: true, ScheduleUnevaluable: true, UpstreamFilterIgnore: true,
 	UndocumentedSource: true, ResultTruncated: true, SourceNotEnabled: true, ClockSkew: true, AltitudeAssumed: true, NotAirworthy: true,
+	CenterNotImplied: true,
 }
 
 // Source describes one official upstream consulted for a response.
