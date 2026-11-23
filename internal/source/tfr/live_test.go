@@ -1,8 +1,9 @@
+//go:build tfrlive
+
 package tfr
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
@@ -10,13 +11,10 @@ import (
 	"github.com/davidhinkes/hobbs/internal/provenance"
 )
 
-// TestLive exercises the real TFR site. The adapter is turned off, so this runs
-// only with its own explicit opt-in, HOBBS_ENABLE_TFR=1 (HOBBS_LIVE alone does
-// not reach tfr.faa.gov).
+// TestLive exercises the real TFR site. The adapter is turned off, so this is
+// built only with its own tag, -tags tfrlive (-tags live does not reach
+// tfr.faa.gov).
 func TestLive(t *testing.T) {
-	if os.Getenv("HOBBS_ENABLE_TFR") != "1" {
-		t.Skip("the TFR adapter is off; set HOBBS_ENABLE_TFR=1 to run against tfr.faa.gov")
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 	start := time.Now()

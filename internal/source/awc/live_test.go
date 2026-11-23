@@ -1,8 +1,9 @@
+//go:build live
+
 package awc
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
@@ -11,12 +12,9 @@ import (
 	"github.com/davidhinkes/hobbs/internal/source"
 )
 
-// TestLive exercises the real AWC API. It is skipped unless HOBBS_LIVE=1, so
+// TestLive exercises the real AWC API. It is built only with -tags live, so
 // the normal suite never touches the network.
 func TestLive(t *testing.T) {
-	if os.Getenv("HOBBS_LIVE") != "1" {
-		t.Skip("set HOBBS_LIVE=1 to run against aviationweather.gov")
-	}
 	c := New()
 	for _, s := range []source.Source[model.Advisory]{c.AirSigmet(), c.GAirmet(), c.IntlSigmet(), c.CWA()} {
 		t.Run(s.ID(), func(t *testing.T) {

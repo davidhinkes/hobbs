@@ -152,7 +152,7 @@ Consequences: responses can be large, and the failure mode is visible (too much 
 - **Go**, official MCP Go SDK (`github.com/modelcontextprotocol/go-sdk`), stdlib `net/http`, `log/slog`. Stdio for dev, Streamable HTTP for hosting.
 - **No cache to start.** Every tool call fetches from the source live. Caching, polling and a snapshot store are premature until we measure a need (upstream load, latency or rate limits). Until then `served_from` is always `live`, and the `STALE_DATA` and `SOURCE_UNAVAILABLE` machinery is simply not exercised. If we add a cache later it must keep the same provenance contract (retrieval time, age, `served_from`).
 - **Fetch whole feeds.** Upstream filters are unreliable (spike), and we do not replace them with our own. Only filters the source supports are forwarded (NMS-API); otherwise the full published set is returned.
-- **TFR adapter (off: built and tested, not wired into any tool; a client refuses to fetch unless explicitly enabled, and its live test needs `HOBBS_ENABLE_TFR=1`):** read the TFR list, then each TFR's detail XML; normalize into the shared record model with the raw XML kept. Geometry is translated only where it is stated plainly (§4a); everything else is flagged.
+- **TFR adapter (off: built and tested, not wired into any tool; a client refuses to fetch unless explicitly enabled, and its live test is built only with `-tags tfrlive`):** read the TFR list, then each TFR's detail XML; normalize into the shared record model with the raw XML kept. Geometry is translated only where it is stated plainly (§4a); everything else is flagged.
 
 ```
 cmd/hobbs/             main: wiring
@@ -205,8 +205,8 @@ Input errors come back as `isError` results with a message the agent can act on,
 ### Transports and hosting
 
 - **stdio** (default) for a local MCP client.
-- **Streamable HTTP** (`-http :8080`, or just set `PORT`): stateless, at `/mcp`, with an open `/healthz`. It refuses to start without at least one bearer token (`HOBBS_TOKENS`, each at least 16 characters) and applies a global rate limit (`HOBBS_RATE`, `HOBBS_BURST`; default 5 per second, burst 10) so a runaway agent loop cannot exhaust upstream quotas. Unauthenticated requests never reach a source and do not consume the rate budget.
-- Secrets only in environment variables (`HOBBS_TOKENS`, `NMS_CLIENT_ID`, `NMS_CLIENT_SECRET`); on Railway, as service variables. Logs go to stderr and never contain credentials.
+- **Streamable HTTP** (`-http :8080`; on Railway `-http :$PORT`): stateless, at `/mcp`, with an open `/healthz`. It refuses to start without at least one bearer token (`HOBBS_TOKENS`, each at least 16 characters) and applies a global rate limit (`-rate`, `-burst`; default 5 per second, burst 10) so a runaway agent loop cannot exhaust upstream quotas. Unauthenticated requests never reach a source and do not consume the rate budget.
+- **Configuration is by command-line flag; secrets only in environment variables** (`HOBBS_TOKENS`, `NMS_CLIENT_ID`, `NMS_CLIENT_SECRET`), so they never appear in process listings or shell history; on Railway, as service variables. The NOTAM source is chosen with `-nms off|staging|production` (default `off`). Logs go to stderr and never contain credentials.
 
 ## 6. Safety and trust
 

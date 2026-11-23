@@ -1,26 +1,24 @@
+//go:build live
+
 package nms
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/davidhinkes/hobbs/internal/provenance"
 )
 
-// TestLive exercises the real NMS-API using NMS_HOST, NMS_CLIENT_ID,
-// NMS_CLIENT_SECRET (and NMS_ENV). It is skipped unless HOBBS_LIVE=1 and the
-// credentials are set, so the normal suite never needs either.
+// TestLive exercises the real NMS-API (staging) with the credentials in
+// NMS_CLIENT_ID and NMS_CLIENT_SECRET. Built only with -tags live, and skipped
+// when the credentials are not set.
 func TestLive(t *testing.T) {
-	if os.Getenv("HOBBS_LIVE") != "1" {
-		t.Skip("set HOBBS_LIVE=1 (and NMS_* variables) to run against the NMS-API")
-	}
-	cfg, ok := ConfigFromEnv()
+	id, secret, ok := CredentialsFromEnv()
 	if !ok {
-		t.Skip("NMS_HOST, NMS_CLIENT_ID and NMS_CLIENT_SECRET are not set")
+		t.Skip("NMS_CLIENT_ID and NMS_CLIENT_SECRET are not set")
 	}
-	c, err := NewClient(cfg)
+	c, err := NewClient(Config{Host: StagingHost, ClientID: id, ClientSecret: secret})
 	if err != nil {
 		t.Fatal(err)
 	}

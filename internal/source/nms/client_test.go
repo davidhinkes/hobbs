@@ -562,22 +562,15 @@ func TestNewClientValidation(t *testing.T) {
 	}
 }
 
-func TestConfigFromEnv(t *testing.T) {
-	t.Setenv("NMS_HOST", "https://example.test/")
+func TestCredentialsFromEnv(t *testing.T) {
 	t.Setenv("NMS_CLIENT_ID", "id")
 	t.Setenv("NMS_CLIENT_SECRET", "secret")
-	t.Setenv("NMS_ENV", "")
-	c, ok := ConfigFromEnv()
-	if !ok || c.Host != "https://example.test" || c.Production {
-		t.Errorf("cfg = %+v ok=%v (anything but NMS_ENV=production must be non-production)", c, ok)
-	}
-	t.Setenv("NMS_ENV", "Production")
-	if c, _ := ConfigFromEnv(); !c.Production {
-		t.Error("NMS_ENV=production not honored")
+	if id, secret, ok := CredentialsFromEnv(); !ok || id != "id" || secret != "secret" {
+		t.Errorf("got %q %q %v", id, secret, ok)
 	}
 	t.Setenv("NMS_CLIENT_SECRET", "")
-	if _, ok := ConfigFromEnv(); ok {
-		t.Error("missing secret must report not configured")
+	if _, _, ok := CredentialsFromEnv(); ok {
+		t.Error("a missing secret must report not configured")
 	}
 }
 

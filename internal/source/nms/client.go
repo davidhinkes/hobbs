@@ -55,17 +55,19 @@ type Config struct {
 	Now        func() time.Time
 }
 
-// ConfigFromEnv reads NMS_HOST, NMS_CLIENT_ID, NMS_CLIENT_SECRET and NMS_ENV
-// ("production" for the operational service; anything else is non-production).
-// It returns ok=false when credentials are not configured.
-func ConfigFromEnv() (Config, bool) {
-	c := Config{
-		Host:         strings.TrimRight(os.Getenv("NMS_HOST"), "/"),
-		ClientID:     os.Getenv("NMS_CLIENT_ID"),
-		ClientSecret: os.Getenv("NMS_CLIENT_SECRET"),
-		Production:   strings.EqualFold(os.Getenv("NMS_ENV"), "production"),
-	}
-	return c, c.Host != "" && c.ClientID != "" && c.ClientSecret != ""
+// NMS-API hosts (scheme and host only), from the FAA's OpenAPI spec. Only
+// staging has been verified; the production host is as the spec gives it.
+const (
+	StagingHost    = "https://api-staging.cgifederal-aim.com"
+	ProductionHost = "https://api-nms.aim.faa.gov"
+)
+
+// CredentialsFromEnv reads NMS_CLIENT_ID and NMS_CLIENT_SECRET. Secrets come
+// from the environment, never from command-line flags, so they do not appear
+// in process listings or shell history. ok is false unless both are set.
+func CredentialsFromEnv() (id, secret string, ok bool) {
+	id, secret = os.Getenv("NMS_CLIENT_ID"), os.Getenv("NMS_CLIENT_SECRET")
+	return id, secret, id != "" && secret != ""
 }
 
 // Client queries the NMS-API.

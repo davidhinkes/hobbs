@@ -1,31 +1,35 @@
+//go:build live
+
 package mcpserver
 
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/davidhinkes/hobbs/internal/source/nms"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // TestLiveStdio builds the real binary and drives it over stdio against the
-// real sources, the way an MCP client would. Opt-in: HOBBS_LIVE=1 (and the
-// NMS_* variables to include NOTAMs). Nothing secret is printed.
+// real sources, the way an MCP client would. Built only with -tags live; NOTAMs
+// are included when NMS_CLIENT_ID and NMS_CLIENT_SECRET are set. Nothing secret
+// is printed.
 func TestLiveStdio(t *testing.T) {
-	if os.Getenv("HOBBS_LIVE") != "1" {
-		t.Skip("set HOBBS_LIVE=1 to run against the live sources")
-	}
 	bin := filepath.Join(t.TempDir(), "hobbs")
 	if out, err := exec.Command("go", "build", "-o", bin, "../../cmd/hobbs").CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	cs, err := mcp.NewClient(&mcp.Implementation{Name: "live", Version: "0"}, nil).Connect(ctx, &mcp.CommandTransport{Command: exec.Command(bin)}, nil)
+	args := []string{}
+	if _, _, ok := nms.CredentialsFromEnv(); ok {
+		args = append(args, "-nms", "staging")
+	}
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "live", Version: "0"}, nil).Connect(ctx, &mcp.CommandTransport{Command: exec.Command(bin, args...)}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
