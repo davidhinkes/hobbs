@@ -51,6 +51,17 @@ Example MCP client configuration (stdio):
 { "mcpServers": { "hobbs": { "command": "/path/to/hobbs", "args": ["-nms-url", "https://api-staging.cgifederal-aim.com"], "env": { "HOBBS_NMS_CLIENT_ID": "...", "HOBBS_NMS_CLIENT_SECRET": "..." } } } }
 ```
 
+## Host it (Railway)
+
+The repo has a `Dockerfile`. On Railway, deploy it from GitHub and set:
+
+- **Start command:** `/usr/local/bin/hobbs -http :8080 -nms-url https://api-staging.cgifederal-aim.com` (drop `-nms-url` for weather only)
+- **Public domain** targeting port `8080`; the MCP endpoint is `https://<domain>/mcp`
+- **Health check:** `/healthz`
+- **Variables (secrets):** `HOBBS_TOKENS`, `HOBBS_NMS_CLIENT_ID`, `HOBBS_NMS_CLIENT_SECRET`. The server refuses to start without a token.
+
+MCP clients connect with the header `Authorization: Bearer <one of HOBBS_TOKENS>`.
+
 ## Develop
 
 ```sh
