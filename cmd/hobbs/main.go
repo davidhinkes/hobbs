@@ -9,8 +9,8 @@
 // listings or shell history:
 //
 //	HOBBS_TOKENS        comma-separated bearer tokens for -http (each >= 16 chars)
-//	NMS_CLIENT_ID       FAA NMS-API credentials, needed when -nms is not "off"
-//	NMS_CLIENT_SECRET
+//	HOBBS_NMS_CLIENT_ID       FAA NMS-API credentials, needed when -nms is not "off"
+//	HOBBS_NMS_CLIENT_SECRET
 package main
 
 import (
@@ -37,22 +37,24 @@ type options struct {
 	airworthy bool
 	http      string
 	rate      float64
-	burst     int
+	rateSet   bool
 	nms       string
-	nmsHost   string
 }
 
 func main() {
 	// Logs go to stderr: on the stdio transport stdout carries the protocol.
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	var o options
-	flag.BoolVar(&o.airworthy, "airworthy", false, "declare responses usable for flight planning and navigation (airworthy: true). Off by default: every response then says airworthy: false. Refused when NOTAMs come from staging or a custom host")
+	flag.BoolVar(&o.airworthy, "airworthy", false, "declare responses usable for flight planning and navigation (airworthy: true). Off by default: every response then says airworthy: false. Refused with -nms staging")
 	flag.StringVar(&o.http, "http", "", "listen address for the hosted Streamable HTTP server, e.g. :8080 (on Railway: -http :$PORT); empty serves MCP over stdio")
-	flag.Float64Var(&o.rate, "rate", 5, "HTTP only: global request rate limit, requests per second")
-	flag.IntVar(&o.burst, "burst", 10, "HTTP only: global request burst")
-	flag.StringVar(&o.nms, "nms", "off", `NOTAM source: "off", "staging" or "production" (credentials from NMS_CLIENT_ID / NMS_CLIENT_SECRET)`)
-	flag.StringVar(&o.nmsHost, "nms-host", "", "override the NMS-API host (scheme and host only)")
+	flag.Float64Var(&o.rate, "rate", 5, "HTTP only: global request rate limit in requests per second (bursts up to twice this); an error without -http")
+	flag.StringVar(&o.nms, "nms", "off", `NOTAM source: "off", "staging" or "production" (credentials from HOBBS_NMS_CLIENT_ID / HOBBS_NMS_CLIENT_SECRET)`)
 	flag.Parse()
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "rate" {
+			o.rateSet = true
+		}
+	})
 	if err := run(log, o); err != nil {
 		log.Error("exiting", "error", err)
 		os.Exit(1)
@@ -77,12 +79,9 @@ func nmsClient(log *slog.Logger, o options) (*nms.Client, error) {
 	default:
 		return nil, fmt.Errorf("-nms must be off, staging or production, not %q", o.nms)
 	}
-	if o.nmsHost != "" {
-		host = strings.TrimRight(o.nmsHost, "/")
-	}
 	id, secret, ok := nms.CredentialsFromEnv()
 	if !ok {
-		return nil, errors.New("-nms=" + o.nms + " needs NMS_CLIENT_ID and NMS_CLIENT_SECRET in the environment")
+		return nil, errors.New("-nms=" + o.nms + " needs HOBBS_NMS_CLIENT_ID and HOBBS_NMS_CLIENT_SECRET in the environment")
 	}
 	c, err := nms.NewClient(nms.Config{Host: host, ClientID: id, ClientSecret: secret})
 	if err != nil {
@@ -96,8 +95,14 @@ func run(log *slog.Logger, o options) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if o.airworthy && (o.nms == "staging" || o.nmsHost != "") {
-		return errors.New("-airworthy is refused: NOTAMs from staging or a custom host are test data and cannot be airworthy")
+	if o.airworthy && o.nms == "staging" {
+		return errors.New("-airworthy is refused: NOTAMs from staging are test data and cannot be airworthy")
+	}
+	if o.rateSet && o.http == "" {
+		return errors.New("-rate applies only to the HTTP server: use it with -http, or leave it out")
+	}
+	if o.rate <= 0 {
+		return errors.New("-rate must be greater than 0")
 	}
 	if o.airworthy {
 		log.Warn("AIRWORTHY mode: responses are declared usable for flight planning and navigation")
@@ -119,7 +124,7 @@ func run(log *slog.Logger, o options) error {
 	}
 
 	handler, err := mcpserver.Handler(srv, mcpserver.HTTPConfig{
-		Tokens: strings.Split(os.Getenv("HOBBS_TOKENS"), ","), RatePerSecond: o.rate, Burst: o.burst,
+		Tokens: strings.Split(os.Getenv("HOBBS_TOKENS"), ","), RatePerSecond: o.rate,
 	})
 	if err != nil {
 		return err

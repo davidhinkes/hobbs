@@ -16,7 +16,7 @@ import (
 
 // TestLiveStdio builds the real binary and drives it over stdio against the
 // real sources, the way an MCP client would. Built only with -tags live; NOTAMs
-// are included when NMS_CLIENT_ID and NMS_CLIENT_SECRET are set. Nothing secret
+// are included when HOBBS_NMS_CLIENT_ID and HOBBS_NMS_CLIENT_SECRET are set. Nothing secret
 // is printed.
 func TestLiveStdio(t *testing.T) {
 	bin := filepath.Join(t.TempDir(), "hobbs")

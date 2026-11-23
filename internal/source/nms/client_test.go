@@ -543,12 +543,12 @@ func TestNewClientValidation(t *testing.T) {
 }
 
 func TestCredentialsFromEnv(t *testing.T) {
-	t.Setenv("NMS_CLIENT_ID", "id")
-	t.Setenv("NMS_CLIENT_SECRET", "secret")
+	t.Setenv("HOBBS_NMS_CLIENT_ID", "id")
+	t.Setenv("HOBBS_NMS_CLIENT_SECRET", "secret")
 	if id, secret, ok := CredentialsFromEnv(); !ok || id != "id" || secret != "secret" {
 		t.Errorf("got %q %q %v", id, secret, ok)
 	}
-	t.Setenv("NMS_CLIENT_SECRET", "")
+	t.Setenv("HOBBS_NMS_CLIENT_SECRET", "")
 	if _, _, ok := CredentialsFromEnv(); ok {
 		t.Error("a missing secret must report not configured")
 	}

@@ -11,12 +11,12 @@ import (
 )
 
 // TestLive exercises the real NMS-API (staging) with the credentials in
-// NMS_CLIENT_ID and NMS_CLIENT_SECRET. Built only with -tags live, and skipped
+// HOBBS_NMS_CLIENT_ID and HOBBS_NMS_CLIENT_SECRET. Built only with -tags live, and skipped
 // when the credentials are not set.
 func TestLive(t *testing.T) {
 	id, secret, ok := CredentialsFromEnv()
 	if !ok {
-		t.Skip("NMS_CLIENT_ID and NMS_CLIENT_SECRET are not set")
+		t.Skip("HOBBS_NMS_CLIENT_ID and HOBBS_NMS_CLIENT_SECRET are not set")
 	}
 	c, err := NewClient(Config{Host: StagingHost, ClientID: id, ClientSecret: secret})
 	if err != nil {

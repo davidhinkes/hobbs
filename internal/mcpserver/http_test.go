@@ -72,7 +72,7 @@ func TestHandlerRefusesToRunWithoutUsableTokens(t *testing.T) {
 }
 
 func TestAuthentication(t *testing.T) {
-	ts, u := hosted(t, HTTPConfig{Tokens: []string{goodToken, "second-token-0123456789"}, Burst: 100, RatePerSecond: 100})
+	ts, u := hosted(t, HTTPConfig{Tokens: []string{goodToken, "second-token-0123456789"}, RatePerSecond: 100})
 	initialize := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}`
 
 	for name, auth := range map[string]string{
@@ -118,11 +118,11 @@ func TestAuthentication(t *testing.T) {
 
 func TestRateLimit(t *testing.T) {
 	c := &clock{t: fixedNow}
-	ts, _ := hosted(t, HTTPConfig{Tokens: []string{goodToken}, RatePerSecond: 2, Burst: 3, Now: c.now})
+	ts, _ := hosted(t, HTTPConfig{Tokens: []string{goodToken}, RatePerSecond: 2, Now: c.now}) // burst = 2 x rate = 4
 	hit := func() *http.Response {
 		return do(t, "POST", ts.URL+"/mcp", "Bearer "+goodToken, `{"jsonrpc":"2.0","id":1,"method":"ping"}`)
 	}
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 4; i++ {
 		if r := hit(); r.StatusCode == 429 {
 			t.Fatalf("request %d limited inside the burst", i+1)
 		}
@@ -159,7 +159,7 @@ func (b bearer) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 func TestEndToEndOverHTTP(t *testing.T) {
-	ts, _ := hosted(t, HTTPConfig{Tokens: []string{goodToken}, Burst: 100, RatePerSecond: 100})
+	ts, _ := hosted(t, HTTPConfig{Tokens: []string{goodToken}, RatePerSecond: 100})
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 

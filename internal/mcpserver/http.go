@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,10 +19,10 @@ type HTTPConfig struct {
 	// Tokens are the accepted bearer tokens, one per agent or user. At least
 	// one is required: the hosted server never runs unauthenticated.
 	Tokens []string
-	// RatePerSecond and Burst bound total requests so a runaway agent loop
-	// cannot exhaust upstream quotas. Zero values use the defaults.
+	// RatePerSecond bounds total requests so a runaway agent loop cannot
+	// exhaust upstream quotas; bursts of up to twice the rate are allowed.
+	// Zero uses the default.
 	RatePerSecond float64
-	Burst         int
 	Now           func() time.Time
 }
 
@@ -76,10 +77,8 @@ func Handler(srv *mcp.Server, cfg HTTPConfig) (http.Handler, error) {
 	if cfg.RatePerSecond <= 0 {
 		cfg.RatePerSecond = 5
 	}
-	if cfg.Burst <= 0 {
-		cfg.Burst = 10
-	}
-	lim := newLimiter(cfg.RatePerSecond, cfg.Burst, cfg.Now)
+	burst := int(math.Ceil(2 * cfg.RatePerSecond))
+	lim := newLimiter(cfg.RatePerSecond, burst, cfg.Now)
 
 	mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
 		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})

@@ -59,11 +59,11 @@ const (
 	ProductionHost = "https://api-nms.aim.faa.gov"
 )
 
-// CredentialsFromEnv reads NMS_CLIENT_ID and NMS_CLIENT_SECRET. Secrets come
+// CredentialsFromEnv reads HOBBS_NMS_CLIENT_ID and HOBBS_NMS_CLIENT_SECRET. Secrets come
 // from the environment, never from command-line flags, so they do not appear
 // in process listings or shell history. ok is false unless both are set.
 func CredentialsFromEnv() (id, secret string, ok bool) {
-	id, secret = os.Getenv("NMS_CLIENT_ID"), os.Getenv("NMS_CLIENT_SECRET")
+	id, secret = os.Getenv("HOBBS_NMS_CLIENT_ID"), os.Getenv("HOBBS_NMS_CLIENT_SECRET")
 	return id, secret, id != "" && secret != ""
 }
 
