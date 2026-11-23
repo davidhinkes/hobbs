@@ -30,7 +30,30 @@ type Deps struct {
 	// NMS is nil when NMS-API credentials are not configured; NOTAM calls then
 	// say so and are marked incomplete.
 	NMS *nms.Client
-	Now func() time.Time
+	// NotForFlight marks every response, from every tool, as not to be used
+	// for flight (a NOT_FOR_FLIGHT warning, so nothing reads as complete), and
+	// says so in the tool descriptions.
+	NotForFlight bool
+	Now          func() time.Time
+}
+
+const notForFlightText = "This server is running in NOT-FOR-FLIGHT mode: its data may come from test environments or be otherwise unsuitable. Do not use it for flight planning or navigation."
+
+// mark adds the NOT_FOR_FLIGHT warning when the server runs in that mode.
+func (d Deps) mark(issues []provenance.Issue) []provenance.Issue {
+	if !d.NotForFlight {
+		return issues
+	}
+	return append(issues, provenance.Issue{Code: provenance.NotForFlight, Severity: provenance.Warning, Message: notForFlightText})
+}
+
+// describe prefixes a tool or server description with the mode, so an agent
+// sees it before calling anything.
+func (d Deps) describe(s string) string {
+	if !d.NotForFlight {
+		return s
+	}
+	return notForFlightText + " " + s
 }
 
 // Filters states who narrowed a result. Anything in AppliedBySource was
@@ -59,8 +82,8 @@ func New(d Deps) (*mcp.Server, error) {
 		d.Now = time.Now
 	}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "hobbs", Version: Version}, &mcp.ServerOptions{
-		Instructions: "Makes official US aviation data available: NOAA Aviation Weather Center advisories (SIGMET, AIRMET, international SIGMET, CWA) and NOTAMs from the FAA NOTAM Management Service. " +
-			"It returns what the sources publish, with provenance and any data-pull problems; it does not decide relevance or what applies to a flight. TFR outlines are not available from an official API we can use, so there is no TFR tool.",
+		Instructions: d.describe("Makes official US aviation data available: NOAA Aviation Weather Center advisories (SIGMET, AIRMET, international SIGMET, CWA) and NOTAMs from the FAA NOTAM Management Service. " +
+			"It returns what the sources publish, with provenance and any data-pull problems; it does not decide relevance or what applies to a flight. TFR outlines are not available from an official API we can use, so there is no TFR tool."),
 	})
 	registerWeather(srv, d)
 	registerNotams(srv, d)

@@ -19,7 +19,8 @@ type SourceStatus struct {
 	ID            string `json:"id"`
 	Authority     string `json:"authority"`
 	Documentation string `json:"documentation"`
-	// Environment is "production", "staging" (a test environment), or "n/a".
+	// Environment is "production", "staging" (a test environment), "custom
+	// host", or "n/a".
 	Environment string `json:"environment"`
 	// Status is "ok", "error" or "not_configured".
 	Status        string `json:"status"`
@@ -38,8 +39,8 @@ func registerStatus(srv *mcp.Server, d Deps) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "source_status",
 		Annotations: readOnly("Health of each data source"),
-		Description: "Checks each upstream source live and reports whether it is reachable, how long it took, whether it is a production or test (staging) environment, and whether its endpoint is a documented API. " +
-			"Use it to understand why a response was incomplete. There is no cache: every data call fetches from the source at the time you call." + reliance,
+		Description: d.describe("Checks each upstream source live and reports whether it is reachable, how long it took, whether it is a production or test (staging) environment, and whether its endpoint is a documented API. " +
+			"Use it to understand why a response was incomplete. There is no cache: every data call fetches from the source at the time you call." + reliance),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ StatusInput) (*mcp.CallToolResult, any, error) {
 		return statusHandler(ctx, d)
 	})
@@ -69,8 +70,11 @@ func statusHandler(ctx context.Context, d Deps) (*mcp.CallToolResult, any, error
 			return
 		}
 		code, err := d.NMS.Ping(ctx)
-		env := "staging"
-		if d.NMS.Production() {
+		env := "custom host"
+		switch d.NMS.Host() {
+		case nms.StagingHost:
+			env = "staging"
+		case nms.ProductionHost:
 			env = "production"
 		}
 		st := SourceStatus{ID: nms.SourceID, Authority: nms.Authority, Documentation: string(provenance.Documented),
@@ -93,17 +97,13 @@ func statusHandler(ctx context.Context, d Deps) (*mcp.CallToolResult, any, error
 			continue
 		}
 		sources = append(sources, srcs[i])
-		if statuses[i].ID == nms.SourceID && !d.NMS.Production() {
-			issues = append(issues, provenance.Issue{Code: provenance.NonProductionSource, Severity: provenance.Warning, Source: nms.SourceID,
-				Message: "the NOTAM source is a non-production (staging) environment"})
-		}
 	}
 	if d.NMS == nil {
 		statuses = append(statuses, SourceStatus{ID: nms.SourceID, Authority: nms.Authority, Documentation: string(provenance.Documented),
 			Environment: "n/a", Status: "not_configured", Error: "NMS-API credentials are not configured"})
 		notConsulted = append(notConsulted, provenance.NotConsulted{ID: nms.SourceID, Reason: "not_configured"})
 	}
-	env, err := provenance.New(statusData{CheckedAt: now, Sources: statuses}, now, sources, notConsulted, issues)
+	env, err := provenance.New(statusData{CheckedAt: now, Sources: statuses}, now, sources, notConsulted, d.mark(issues))
 	if err != nil {
 		return toolError("internal error: %v", err)
 	}

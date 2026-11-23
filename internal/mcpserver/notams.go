@@ -41,12 +41,11 @@ func registerNotams(srv *mcp.Server, d Deps) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "get_notams",
 		Annotations: readOnly("NOTAMs from the FAA NOTAM Management Service"),
-		Description: "Returns NOTAMs from the FAA NOTAM Management Service (NMS-API), including FDC NOTAMs. " +
+		Description: d.describe("Returns NOTAMs from the FAA NOTAM Management Service (NMS-API), including FDC NOTAMs. " +
 			"You must give at least one filter (location, a latitude/longitude/radius_nm area, an effective window, or others); the filters are applied by the FAA's API, not by this server, and the response lists exactly which. " +
 			"Each NOTAM carries its raw text in every rendering the FAA supplied (ICAO and local format), the published fields, and canonical GeoJSON geometry where one is published (positions are [longitude, latitude]; a point with a radius is translated to a slightly larger circle polygon, with the original circle in geometry_derivation). " +
 			"Results can be large (an airport can have hundreds of NOTAMs); nothing is ranked, summarized or dropped. " +
-			"NOTAMs for temporary flight restrictions appear here as FDC NOTAMs with their text and dates, but the FAA's TFR outlines are not available from this source, so geometry for them may be missing or only a point. " +
-			"If the response's completeness.issues include NON_PRODUCTION_SOURCE, the data is from a test environment and must not be relied on for flight." + reliance,
+			"NOTAMs for temporary flight restrictions appear here as FDC NOTAMs with their text and dates, but the FAA's TFR outlines are not available from this source, so geometry for them may be missing or only a point. " + reliance),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in NotamsInput) (*mcp.CallToolResult, any, error) {
 		return notamsHandler(ctx, d, in)
 	})
@@ -77,10 +76,10 @@ func notamsHandler(ctx context.Context, d Deps, in NotamsInput) (*mcp.CallToolRe
 
 	if d.NMS == nil {
 		// Credentials are not configured: say so rather than return an empty list.
-		env, perr := provenance.New(data, now, nil, []provenance.NotConsulted{{ID: nms.SourceID, Reason: "not_configured"}}, []provenance.Issue{{
+		env, perr := provenance.New(data, now, nil, []provenance.NotConsulted{{ID: nms.SourceID, Reason: "not_configured"}}, d.mark([]provenance.Issue{{
 			Code: provenance.SourceNotEnabled, Severity: provenance.Critical, Source: nms.SourceID,
-			Message: "NOTAMs are unavailable: NMS-API credentials are not configured on this server",
-		}})
+			Message: "NOTAMs are unavailable: the NOTAM source is not enabled on this server",
+		}}))
 		if perr != nil {
 			return toolError("internal error: %v", perr)
 		}
@@ -93,7 +92,7 @@ func notamsHandler(ctx context.Context, d Deps, in NotamsInput) (*mcp.CallToolRe
 			return toolError("%v", qerr) // the request itself is wrong; the agent can fix it
 		}
 		s, is := failure(snap.Source, nms.SourceID, qerr, now)
-		env, perr := provenance.New(data, now, []provenance.Source{s}, nil, []provenance.Issue{is})
+		env, perr := provenance.New(data, now, []provenance.Source{s}, nil, d.mark([]provenance.Issue{is}))
 		if perr != nil {
 			return toolError("internal error: %v", perr)
 		}
@@ -115,7 +114,7 @@ func notamsHandler(ctx context.Context, d Deps, in NotamsInput) (*mcp.CallToolRe
 		data.OmittedFields = append(data.OmittedFields, "geometry")
 	}
 	snap.Source.RecordsReturned = len(data.NOTAMs)
-	env, perr := provenance.New(data, now, []provenance.Source{snap.Source}, nil, issues)
+	env, perr := provenance.New(data, now, []provenance.Source{snap.Source}, nil, d.mark(issues))
 	if perr != nil {
 		return toolError("internal error: %v", perr)
 	}

@@ -48,11 +48,8 @@ type Config struct {
 	Host         string
 	ClientID     string
 	ClientSecret string
-	// Production must be true only for the operational environment. When false,
-	// every snapshot carries a NON_PRODUCTION_SOURCE warning.
-	Production bool
-	HTTP       *http.Client
-	Now        func() time.Time
+	HTTP         *http.Client
+	Now          func() time.Time
 }
 
 // NMS-API hosts (scheme and host only), from the FAA's OpenAPI spec. Only
@@ -441,12 +438,6 @@ func (c *Client) build(snap *source.Snapshot[model.Notam], feats []json.RawMessa
 		fmt.Sprintf("%d NOTAM(s) carry a schedule that the server does not interpret; see the schedule field", len(sched)))
 	snap.Issues = source.AppendIssue(snap.Issues, SourceID, provenance.AltitudeUnknown, provenance.Info, noAlt,
 		fmt.Sprintf("%d NOTAM(s) state no vertical limits", len(noAlt)))
-	if !c.cfg.Production {
-		snap.Issues = append(snap.Issues, provenance.Issue{
-			Code: provenance.NonProductionSource, Severity: provenance.Warning, Source: SourceID,
-			Message: "data is from a non-production (staging) environment and may be test, stale or incomplete; do not rely on it for flight decisions",
-		})
-	}
 }
 
 // Applied reports the filters this query forwards to the NMS-API, by the API's
@@ -461,9 +452,6 @@ func (q Query) Applied() map[string]string {
 
 // Host returns the API host this client talks to.
 func (c *Client) Host() string { return c.cfg.Host }
-
-// Production reports whether the client is configured for the operational service.
-func (c *Client) Production() bool { return c.cfg.Production }
 
 // Ping checks that credentials work and the service is up: it obtains a token
 // and calls the API's ping endpoint. It returns the HTTP status of the ping.

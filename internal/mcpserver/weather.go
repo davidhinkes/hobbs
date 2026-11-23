@@ -44,9 +44,9 @@ func registerWeather(srv *mcp.Server, d Deps) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "get_weather_advisories",
 		Annotations: readOnly("Weather advisories (SIGMET, AIRMET, CWA)"),
-		Description: "Returns the complete current set of US and international weather advisories published by the NOAA Aviation Weather Center: SIGMET, graphical AIRMET, international SIGMET and center weather advisories. " +
+		Description: d.describe("Returns the complete current set of US and international weather advisories published by the NOAA Aviation Weather Center: SIGMET, graphical AIRMET, international SIGMET and center weather advisories. " +
 			"The source offers no usable area filter, so each set is returned in full, as published, with canonical GeoJSON geometry (positions are [longitude, latitude]), raw advisory text where the source gives it, and the original validity times. " +
-			"The server does not decide which advisories apply to a flight, time, altitude or place; that is for the caller." + reliance,
+			"The server does not decide which advisories apply to a flight, time, altitude or place; that is for the caller." + reliance),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in WeatherInput) (*mcp.CallToolResult, any, error) {
 		return weatherHandler(ctx, d, in)
 	})
@@ -138,7 +138,7 @@ func weatherHandler(ctx context.Context, d Deps, in WeatherInput) (*mcp.CallTool
 		sources[i].RecordsReturned = returned[sources[i].ID]
 	}
 
-	env, err := provenance.New(data, now, sources, nil, issues)
+	env, err := provenance.New(data, now, sources, nil, d.mark(issues))
 	if err != nil {
 		return toolError("internal error: %v", err)
 	}

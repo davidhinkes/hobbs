@@ -87,7 +87,7 @@ func newFake(t *testing.T, body []byte) (*fake, *Client) {
 	})
 	f.srv = httptest.NewServer(mux)
 	t.Cleanup(f.srv.Close)
-	c, err := NewClient(Config{Host: f.srv.URL, ClientID: testID, ClientSecret: testSecret, Production: true, Now: func() time.Time { return fixedNow }})
+	c, err := NewClient(Config{Host: f.srv.URL, ClientID: testID, ClientSecret: testSecret, Now: func() time.Time { return fixedNow }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,30 +267,10 @@ func TestEmptyDataObjectIsAGenuineNone(t *testing.T) {
 	if err != nil || len(snap.Items) != 0 {
 		t.Fatalf("snap=%+v err=%v", snap, err)
 	}
-	// Production, clean pull: the envelope may assert "none".
+	// A clean pull: the envelope may assert "none".
 	env, err := provenance.New(snap.Items, fixedNow, []provenance.Source{snap.Source}, nil, snap.Issues)
 	if err != nil || !env.Completeness.CanAssertNone() {
 		t.Errorf("env=%+v err=%v", env.Completeness, err)
-	}
-}
-
-func TestStagingIsFlaggedAndCannotAssertNone(t *testing.T) {
-	f, _ := newFake(t, []byte(`{"status":"Success","data":{}}`))
-	c, err := NewClient(Config{Host: f.srv.URL, ClientID: testID, ClientSecret: testSecret, Production: false, Now: func() time.Time { return fixedNow }})
-	if err != nil {
-		t.Fatal(err)
-	}
-	snap, err := c.Query(context.Background(), q)
-	if err != nil {
-		t.Fatal(err)
-	}
-	is := issue(snap.Issues, provenance.NonProductionSource)
-	if is == nil || is.Severity != provenance.Warning {
-		t.Fatalf("issues = %+v", snap.Issues)
-	}
-	env, _ := provenance.New(snap.Items, fixedNow, []provenance.Source{snap.Source}, nil, snap.Issues)
-	if env.Completeness.Status != provenance.Degraded || env.Completeness.CanAssertNone() {
-		t.Errorf("a staging 'none' must not be assertable: %s", env.Completeness.Status)
 	}
 }
 
@@ -408,7 +388,7 @@ func TestBadRecordsAreFlaggedNotDropped(t *testing.T) {
 func TestTokenIsCachedAndRefreshed(t *testing.T) {
 	now := fixedNow
 	f, _ := newFake(t, []byte(`{"status":"Success","data":{}}`))
-	c, _ := NewClient(Config{Host: f.srv.URL, ClientID: testID, ClientSecret: testSecret, Production: true, Now: func() time.Time { return now }})
+	c, _ := NewClient(Config{Host: f.srv.URL, ClientID: testID, ClientSecret: testSecret, Now: func() time.Time { return now }})
 	for i := 0; i < 3; i++ {
 		if _, err := c.Query(context.Background(), q); err != nil {
 			t.Fatal(err)
@@ -440,7 +420,7 @@ func TestExpiredTokenIsRetriedOnce(t *testing.T) {
 func TestAuthFailuresNeverLeakSecrets(t *testing.T) {
 	// Wrong credentials.
 	f, _ := newFake(t, nil)
-	bad, _ := NewClient(Config{Host: f.srv.URL, ClientID: testID, ClientSecret: "wrong-secret-VALUE", Production: true})
+	bad, _ := NewClient(Config{Host: f.srv.URL, ClientID: testID, ClientSecret: "wrong-secret-VALUE"})
 	_, err := bad.Query(context.Background(), q)
 	if !errors.Is(err, ErrAuth) || !errors.Is(err, ErrUpstream) {
 		t.Fatalf("err = %v", err)
