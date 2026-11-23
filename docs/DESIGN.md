@@ -50,7 +50,7 @@ Rules that follow:
       "refs": ["FDC 0/0367"]
     }]
   },
-  "disclaimer": "Advisory only. Not an official briefing."
+  "disclaimer": "Provided AS IS, no warranty. Best-effort copy; not FAA/NWS data as published; not endorsed. Advisory only."
 }
 ```
 
@@ -139,7 +139,9 @@ Few tools, structured compact JSON, strict input validation with field-specific 
 
 ## 6. Safety and trust
 
-- Advisory only; disclaimer in every response and tool description. The FAA briefing channels remain the legal standard.
+- **No guarantees.** The service is provided as is, with no warranty. We make a best effort to replicate official data as faithfully as we can, and we say plainly when we could not. We do not promise it is complete, timely or correct. Every response carries a disclaimer (`provenance.Disclaimer`) saying so, and tool descriptions repeat it.
+- **Not presented as FAA data.** The NMS-API Terms of Service allow redistribution but say redistributed information may not be characterized as FAA data. The disclaimer states the data is a best-effort copy, not FAA/NWS data as published, and not endorsed. Sources are still named for provenance; confirm the attribution wording with the FAA if it becomes an issue.
+- Advisory only. The FAA briefing channels remain the legal standard.
 - NOTAM/TFR free text is untrusted: returned in a delimited `raw_text` field, never merged into summaries, and tool descriptions say it is data, not instructions.
 - Hosted: bearer token per agent, global rate limit so a runaway loop cannot exhaust upstream quotas, kill switch for the NOTAM adapter, `/healthz` reporting per-source freshness, and an external uptime alert for stale feeds.
 - Credentials (NMS client id/secret) only in environment variables.

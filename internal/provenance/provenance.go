@@ -14,7 +14,10 @@ import (
 )
 
 // Disclaimer is attached to every envelope.
-const Disclaimer = "Advisory only. Not an official briefing; consult official FAA/NWS sources before flight."
+const Disclaimer = "Provided AS IS, with no warranty or guarantee of any kind. " +
+	"This is a best-effort copy of data from the sources listed in provenance; it may be incomplete, delayed or wrong. " +
+	"It is not FAA or NWS data as published, and is not endorsed by the FAA or NWS. " +
+	"Advisory only, not an official briefing: consult official sources before flight."
 
 // clockSkewTolerance is how far an upstream timestamp may be ahead of our
 // clock before CLOCK_SKEW is reported.
