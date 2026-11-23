@@ -204,14 +204,25 @@ func TestSampleRecordSemantics(t *testing.T) {
 	}
 
 	// Geometry shapes.
-	if g := byNumber(t, it, "04/035").Geometry; g == nil || g.Center == nil || g.RadiusNM == nil {
-		t.Errorf("point+radius should be a circle: %+v", g)
+	circ := byNumber(t, it, "04/035")
+	if circ.Geometry == nil || circ.Geometry.Type != model.GeomPolygon || len(circ.Geometry.Polygons[0][0]) != 65 {
+		t.Fatalf("a point with a radius is translated to a polygon: %+v", circ.Geometry)
 	}
-	if g := byNumber(t, it, "10/041").Geometry; g == nil || len(g.Ring) < 4 {
+	if d := circ.GeometryDerivation; d == nil || d.Circle == nil || d.Circle.RadiusNM <= 0 || len(d.Steps) == 0 || d.Steps[0] != "circle_to_circumscribed_polygon_64" {
+		t.Errorf("the circle as published must be kept in the derivation: %+v", d)
+	}
+	if g := byNumber(t, it, "10/041").Geometry; g == nil || g.Type != model.GeomPolygon || len(g.Polygons[0][0]) < 4 {
 		t.Errorf("polygon: %+v", g)
 	}
-	if g := byNumber(t, it, "11/151").Geometry; g == nil || len(g.Rings) != 3 {
+	if g := byNumber(t, it, "11/151").Geometry; g == nil || g.Type != model.GeomMultiPolygon || len(g.Polygons) != 3 {
 		t.Errorf("multipolygon should keep all 3 parts: %+v", g)
+	}
+	for _, a := range it {
+		if a.Geometry != nil {
+			if err := a.Geometry.Validate(); err != nil {
+				t.Errorf("%s: geometry not canonical: %v", a.ID, err)
+			}
+		}
 	}
 
 	// Text: ICAO preferred; every rendering kept; single-translation records kept.
@@ -566,10 +577,10 @@ func TestConfigFromEnv(t *testing.T) {
 }
 
 func TestParseCoordAndLimits(t *testing.T) {
-	if ll, ok := parseCoord("3856N07727W"); !ok || ll.Lat < 38.93 || ll.Lat > 38.94 || ll.Lon > -77.44 || ll.Lon < -77.46 {
+	if ll, ok := parseCoord("3856N07727W"); !ok || ll.Lat() < 38.93 || ll.Lat() > 38.94 || ll.Lon() > -77.44 || ll.Lon() < -77.46 {
 		t.Errorf("coord = %+v ok=%v", ll, ok)
 	}
-	if ll, ok := parseCoord("3300S15100E"); !ok || ll.Lat > 0 || ll.Lon < 0 {
+	if ll, ok := parseCoord("3300S15100E"); !ok || ll.Lat() > 0 || ll.Lon() < 0 {
 		t.Errorf("southern/eastern = %+v", ll)
 	}
 	for _, s := range []string{"", "3856N0772W", "3875N07727W", "9100N07727W", "3856X07727W", "3856N18100W"} {
@@ -596,5 +607,66 @@ func TestParseCoordAndLimits(t *testing.T) {
 	}
 	if a, ok := parseQLineFL("000", true); !ok || a.Datum != model.DatumFL || *a.Value != 0 {
 		t.Errorf("000 as an upper limit is FL000, not surface: %+v", a)
+	}
+}
+
+func TestPointAndCircleTranslation(t *testing.T) {
+	feat := func(geom, extra string) string {
+		return `{"status":"Success","data":{"geojson":[{"type":"Feature","properties":{"coreNOTAMData":{"notam":{"id":"NMS_X","number":"01/001","type":"N","effectiveStart":"2026-11-01T00:00:00Z","effectiveEnd":"2026-12-01T00:00:00Z","classification":"DOM"` + extra + `},"notamTranslation":[{"type":"ICAO","formattedText":"RAW"}]}},"geometry":` + geom + `}]}}`
+	}
+	pt := `{"type":"GeometryCollection","geometries":[{"type":"Point","coordinates":[-77.45,38.95]}]}`
+	tests := []struct {
+		name, body string
+		wantType   model.GeometryType
+		wantIssue  bool
+	}{
+		{"point with no radius stays a point", feat(pt, ``), model.GeomPoint, false},
+		{"radius 0 is a point", feat(pt, `,"radius":"0"`), model.GeomPoint, false},
+		{"radius 5 is a polygon", feat(pt, `,"radius":"5"`), model.GeomPolygon, false},
+		{"radius 999 means no limit; no geometry invented", feat(pt, `,"radius":"999"`), "", true},
+		{"unparseable radius leaves the point and flags it", feat(pt, `,"radius":"big"`), model.GeomPoint, true},
+		{"circle across the antimeridian is cut", feat(`{"type":"Point","coordinates":[179.99,10]}`, `,"radius":"25"`), model.GeomMultiPolygon, false},
+		{"several points are a MultiPoint, kept as published", feat(`{"type":"GeometryCollection","geometries":[{"type":"Point","coordinates":[-75.3,39.6]},{"type":"Point","coordinates":[-75.6,39.7]},{"type":"Point","coordinates":[-75.3,39.6]}]}`, ``), model.GeomMultiPoint, false},
+		{"a radius on several points is not applied, and says so", feat(`{"type":"GeometryCollection","geometries":[{"type":"Point","coordinates":[-75.3,39.6]},{"type":"Point","coordinates":[-75.6,39.7]}]}`, `,"radius":"5"`), model.GeomMultiPoint, true},
+		{"circle near a pole is refused", feat(`{"type":"Point","coordinates":[0,89.5]}`, `,"radius":"25"`), "", true},
+		{"no GeoJSON: falls back to the Q-line circle", feat(`null`, `,"coordinates":"3856N07727W","radius":"5"`), model.GeomPolygon, false},
+		{"no GeoJSON and no Q-line position: none", feat(`null`, ``), "", false},
+		{"GeoJSON present but unusable: no fallback", feat(`{"type":"Point","coordinates":[500,500]}`, `,"coordinates":"3856N07727W","radius":"5"`), "", true},
+		{"polygon with a hole keeps the hole", feat(`{"type":"Polygon","coordinates":[[[0,0],[10,0],[10,10],[0,10],[0,0]],[[2,2],[2,4],[4,4],[4,2],[2,2]]]}`, ``), model.GeomPolygon, false},
+		{"clockwise polygon is reoriented", feat(`{"type":"Polygon","coordinates":[[[0,0],[0,10],[10,10],[10,0],[0,0]]]}`, ``), model.GeomPolygon, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, c := newFake(t, []byte(tt.body))
+			snap, err := c.Query(context.Background(), q)
+			if err != nil || len(snap.Items) != 1 {
+				t.Fatalf("items=%d err=%v", len(snap.Items), err)
+			}
+			a := snap.Items[0]
+			got := model.GeometryType("")
+			if a.Geometry != nil {
+				got = a.Geometry.Type
+				if err := a.Geometry.Validate(); err != nil {
+					t.Errorf("geometry not canonical: %v", err)
+				}
+			}
+			if got != tt.wantType {
+				t.Errorf("geometry = %q, want %q (%v)", got, tt.wantType, a.ParseIssues)
+			}
+			if (len(a.ParseIssues) > 0) != tt.wantIssue {
+				t.Errorf("issues = %v, want issue=%v", a.ParseIssues, tt.wantIssue)
+			}
+		})
+	}
+	// A hole survives, wound clockwise; a reoriented ring says so.
+	_, c := newFake(t, []byte(feat(`{"type":"Polygon","coordinates":[[[0,0],[10,0],[10,10],[0,10],[0,0]],[[2,2],[2,4],[4,4],[4,2],[2,2]]]}`, ``)))
+	snap, _ := c.Query(context.Background(), q)
+	if g := snap.Items[0].Geometry; g == nil || len(g.Polygons[0]) != 2 {
+		t.Errorf("hole lost: %+v", g)
+	}
+	_, c = newFake(t, []byte(feat(`{"type":"Polygon","coordinates":[[[0,0],[0,10],[10,10],[10,0],[0,0]]]}`, ``)))
+	snap, _ = c.Query(context.Background(), q)
+	if d := snap.Items[0].GeometryDerivation; d == nil || len(d.Steps) != 1 || d.Steps[0] != "ring_reoriented" {
+		t.Errorf("derivation = %+v", d)
 	}
 }

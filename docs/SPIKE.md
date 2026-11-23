@@ -46,6 +46,13 @@ Access: requested by email per the FAA NMS page; the FAA issued staging credenti
 - **Staging is not operational:** the data includes entries like "AIRSPACE TESTED FOR CUTOVER SIMULATION". The adapter flags every non-production snapshot with `NON_PRODUCTION_SOURCE`.
 - **Volume:** a single airport returns hundreds of KB; no rate-limit headers were seen, limits are unknown. The FAQ suggests polling "the last 3 minutes".
 
+### Found while unifying geography (live data)
+
+- **AWC `AREAS` can contain a degenerate part.** Live `isigmet` SBGL 95 had a second part with only two distinct points (zero area) that the official text does not describe. Dropped, and recorded as `degenerate_part_dropped`.
+- **NMS FDC route NOTAMs have several Points and no area** (airway restrictions between VORs; one repeated the same two points). Represented as `MultiPoint`, as published.
+- **A NOTAM `radius` of 999** means "no radius limit" in ICAO usage, not a 999 nm circle; no geometry is derived.
+- A 100 nm query around IAD returned 1,335 NOTAMs: 906 polygons, 402 points (756 of the total were circles from point plus radius), 21 multi-part areas, 6 multi-point; no polygon holes seen.
+
 ## FAA TFRs (tfr.faa.gov) — undocumented
 
 - `GET /tfrapi/getTfrList` — 47 TFRs, JSON, `Cache-Control: no-cache`. Fields: `notam_id`, `facility`, `state`, `type`, `description`, `mod_date`, `mod_abs_time`, `is_new`, `gid`. **No geometry, no altitudes, no dates beyond the free-text description.**

@@ -45,9 +45,11 @@ type Advisory struct {
 	Lower Altitude `json:"lower"`
 	Upper Altitude `json:"upper"`
 
-	// Geometry is nil when no spatial extent could be determined; consumers
-	// must then treat spatial applicability as unknown.
-	Geometry *Geometry `json:"geometry,omitempty"`
+	// Geometry is the canonical RFC 7946 geometry; nil when no spatial extent
+	// could be determined. GeometryDerivation lists every translation applied
+	// to produce it.
+	Geometry           *Geometry   `json:"geometry,omitempty"`
+	GeometryDerivation *Derivation `json:"geometry_derivation,omitempty"`
 
 	// Details holds upstream fields with no normalized home (movement, due-to,
 	// freezing-level range, ...), kept as the upstream stated them.
@@ -82,22 +84,9 @@ func (a Advisory) Validate() error {
 			return fmt.Errorf("advisory %s: %w", a.ID, err)
 		}
 	}
-	if g := a.Geometry; g != nil {
-		n := 0
-		if len(g.Ring) > 0 {
-			n++
-		}
-		if len(g.Rings) > 0 {
-			n++
-		}
-		if len(g.Line) > 0 {
-			n++
-		}
-		if g.Center != nil {
-			n++
-		}
-		if n != 1 {
-			return fmt.Errorf("advisory %s: geometry must set exactly one of ring, rings, line, circle", a.ID)
+	if a.Geometry != nil {
+		if err := a.Geometry.Validate(); err != nil {
+			return fmt.Errorf("advisory %s: %w", a.ID, err)
 		}
 	}
 	return nil

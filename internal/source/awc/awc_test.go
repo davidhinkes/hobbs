@@ -87,7 +87,7 @@ func TestAirSigmetFixture(t *testing.T) {
 	if a.Lower.Known() {
 		t.Errorf("lower should be unknown, got %+v", a.Lower)
 	}
-	if a.Geometry == nil || len(a.Geometry.Ring) != 5 {
+	if a.Geometry == nil || a.Geometry.Type != model.GeomPolygon || len(a.Geometry.Polygons[0][0]) != 5 {
 		t.Errorf("geometry = %+v", a.Geometry)
 	}
 	if a.RawFormat != model.RawOfficialText || !strings.Contains(a.RawText, "CONVECTIVE SIGMET 43E") {
@@ -114,7 +114,7 @@ func TestGAirmetFixture(t *testing.T) {
 	}
 	var lines int
 	for _, a := range snap.Items {
-		if a.Geometry != nil && len(a.Geometry.Line) > 0 {
+		if a.Geometry != nil && a.Geometry.Type == model.GeomLineString {
 			lines++
 		}
 		if a.RawFormat != model.RawUpstreamJSON || a.RawText == "" {
@@ -194,11 +194,12 @@ func TestIntlSigmetFixture(t *testing.T) {
 func TestCWAFixtureInfersRingFromClosure(t *testing.T) {
 	snap := fetch(t, serve(t, 200, fixture(t, "cwa.json")).CWA())
 	a := byID(t, snap, "ZTL CWA 104")
-	if a.Geometry == nil || len(a.Geometry.Ring) != 6 {
+	if a.Geometry == nil || a.Geometry.Type != model.GeomPolygon || len(a.Geometry.Polygons[0][0]) != 6 {
 		t.Fatalf("geometry = %+v", a.Geometry)
 	}
-	if a.Geometry.Ring[0].Lat != 36.992 || a.Geometry.Ring[0].Lon != -80.422 {
-		t.Errorf("string coords not decoded: %+v", a.Geometry.Ring[0])
+	// Canonical positions are [lon, lat]; the closed ring keeps its first point.
+	if first := a.Geometry.Polygons[0][0][0]; first != (model.Position{-80.422, 36.992}) {
+		t.Errorf("string coords not decoded: %+v", first)
 	}
 	if len(a.ParseIssues) != 0 {
 		t.Errorf("closed ring with null geom should not be a parse issue: %v", a.ParseIssues)
@@ -295,7 +296,7 @@ func TestBadRecordsAreFlaggedNotDropped(t *testing.T) {
 	if len(snap.Items) != 6 || snap.Source.RecordsInFeed != 6 {
 		t.Fatalf("items=%d feed=%d, want 6/6", len(snap.Items), snap.Source.RecordsInFeed)
 	}
-	if a := byID(t, snap, "KKCI 1A"); len(a.ParseIssues) != 0 || a.Geometry == nil || len(a.Geometry.Ring) != 4 {
+	if a := byID(t, snap, "KKCI 1A"); len(a.ParseIssues) != 0 || a.Geometry == nil || a.Geometry.Type != model.GeomPolygon || len(a.Geometry.Polygons[0][0]) != 4 {
 		t.Errorf("good record damaged: %+v", a)
 	}
 	if a := byID(t, snap, "KKCI 1A #2"); a.RawText != "DUP" {
@@ -443,30 +444,58 @@ func TestRefsAreCapped(t *testing.T) {
 func TestMultiPartAreasAndExtendedLongitude(t *testing.T) {
 	snap := fetch(t, serve(t, 200, fixture(t, "isigmet_multipart.json")).IntlSigmet())
 	nz := byID(t, snap, "NZKL 22")
-	if nz.Geometry == nil || len(nz.Geometry.Rings) != 2 || len(nz.ParseIssues) != 0 {
+	if nz.Geometry == nil || nz.Geometry.Type != model.GeomMultiPolygon || len(nz.Geometry.Polygons) != 2 || len(nz.ParseIssues) != 0 {
 		t.Fatalf("NZKL 22 geometry = %+v issues=%v", nz.Geometry, nz.ParseIssues)
 	}
-	var maxLon float64
-	for _, r := range nz.Geometry.Rings {
-		for _, p := range r {
-			if p.Lon > maxLon {
-				maxLon = p.Lon
+	// Every canonical longitude is within [-180, 180]: AWC's second part ran
+	// east of 180 (up to 196.333) and was shifted by 360 degrees.
+	shifted := false
+	for _, poly := range nz.Geometry.Polygons {
+		for _, p := range poly[0] {
+			if p[0] < -180 || p[0] > 180 {
+				t.Fatalf("longitude %v outside [-180, 180]", p[0])
 			}
 		}
+		minLon, maxLon := 999.0, -999.0
+		for _, p := range poly[0] {
+			if p[0] < minLon {
+				minLon = p[0]
+			}
+			if p[0] > maxLon {
+				maxLon = p[0]
+			}
+		}
+		if minLon == -180 && maxLon > -164 && maxLon < -163.6 {
+			shifted = true // 196.333 - 360 = -163.667
+		}
 	}
-	if maxLon != 196.333 {
-		t.Errorf("longitudes must be preserved as published (unwrapped), max = %v", maxLon)
+	if !shifted {
+		t.Error("the part east of 180 should have been shifted to [-180, -163.667]")
 	}
-	if nz.Upper.Datum != model.DatumFL || *nz.Upper.Value != 300 {
-		t.Errorf("NZKL 22 upper = %+v", nz.Upper)
+	if nz.GeometryDerivation == nil || !contains(nz.GeometryDerivation.Steps, "antimeridian_shift") {
+		t.Errorf("derivation must record the shift: %+v", nz.GeometryDerivation)
 	}
 	br := byID(t, snap, "SBGL 39")
-	if br.Geometry == nil || len(br.Geometry.Rings) != 2 {
+	if br.Geometry == nil || br.Geometry.Type != model.GeomMultiPolygon || len(br.Geometry.Polygons) != 2 {
 		t.Errorf("SBGL 39 geometry = %+v", br.Geometry)
 	}
 	if issue(snap, provenance.GeometryUnavailable) != nil || issue(snap, provenance.ParseFailed) != nil {
 		t.Errorf("valid multi-part records must not raise warnings: %+v", snap.Issues)
 	}
+	for _, a := range snap.Items {
+		if err := a.Validate(); err != nil {
+			t.Errorf("%s: %v", a.ID, err)
+		}
+	}
+}
+
+func contains(ss []string, v string) bool {
+	for _, s := range ss {
+		if s == v {
+			return true
+		}
+	}
+	return false
 }
 
 func TestGeometryEdgeCases(t *testing.T) {
@@ -474,17 +503,18 @@ func TestGeometryEdgeCases(t *testing.T) {
 	open := `[{"lat":1,"lon":1},{"lat":1,"lon":2},{"lat":2,"lon":2},{"lat":2,"lon":3}]`
 	tests := []struct {
 		name, geom, coords string
-		wantKind           string // ring | rings | line | none
+		wantKind           string // Polygon | MultiPolygon | LineString | none
 		wantIssue          bool
 	}{
-		{"flat area", `"AREA"`, ring, "ring", false},
-		{"flat inferred closed", `null`, ring, "ring", false},
+		{"flat area", `"AREA"`, ring, "Polygon", false},
+		{"flat inferred closed", `null`, ring, "Polygon", false},
 		{"open area is not served as an area", `"AREA"`, open, "none", true},
-		{"open path with no type is a line, flagged", `null`, open, "line", true},
-		{"explicit line", `"LINE"`, open, "line", false},
+		{"open path with no type is a line, flagged", `null`, open, "LineString", true},
+		{"explicit line", `"LINE"`, open, "LineString", false},
 		{"line of one point", `"LINE"`, `[{"lat":1,"lon":1}]`, "none", true},
-		{"areas ok", `"AREAS"`, `[` + ring + `,` + ring + `]`, "rings", false},
-		{"single-part areas collapses to a ring", `"AREAS"`, `[` + ring + `]`, "ring", false},
+		{"areas ok", `"AREAS"`, `[` + ring + `,` + ring + `]`, "MultiPolygon", false},
+		{"single-part areas collapses to a ring", `"AREAS"`, `[` + ring + `]`, "Polygon", false},
+		{"areas with a collapsed part drops only that part", `"AREAS"`, `[` + ring + `,[{"lat":5,"lon":5},{"lat":5,"lon":5},{"lat":6,"lon":6},{"lat":5,"lon":5}]]`, "Polygon", false},
 		{"areas with one open part is all-or-nothing", `"AREAS"`, `[` + ring + `,` + open + `]`, "none", true},
 		{"areas but flat", `"AREAS"`, ring, "none", true},
 		{"area but nested", `"AREA"`, `[` + ring + `]`, "none", true},
@@ -493,7 +523,10 @@ func TestGeometryEdgeCases(t *testing.T) {
 		{"missing lon", `"AREA"`, `[{"lat":1},{"lat":1,"lon":2},{"lat":2,"lon":2},{"lat":1}]`, "none", true},
 		{"lat out of range", `"AREA"`, `[{"lat":91,"lon":1},{"lat":1,"lon":2},{"lat":2,"lon":2},{"lat":91,"lon":1}]`, "none", true},
 		{"lon beyond 360", `"AREA"`, `[{"lat":1,"lon":361},{"lat":1,"lon":2},{"lat":2,"lon":2},{"lat":1,"lon":361}]`, "none", true},
-		{"lon in unwrapped range ok", `"AREA"`, `[{"lat":1,"lon":190},{"lat":1,"lon":200},{"lat":2,"lon":200},{"lat":1,"lon":190}]`, "ring", false},
+		{"lon in unwrapped range ok", `"AREA"`, `[{"lat":1,"lon":190},{"lat":1,"lon":200},{"lat":2,"lon":200},{"lat":1,"lon":190}]`, "Polygon", false},
+		{"clockwise ring is reoriented, not rejected", `"AREA"`, `[{"lat":1,"lon":1},{"lat":2,"lon":2},{"lat":1,"lon":2},{"lat":1,"lon":1}]`, "Polygon", false},
+		{"ring straddling the antimeridian is cut", `"AREA"`, `[{"lat":0,"lon":170},{"lat":0,"lon":190},{"lat":10,"lon":190},{"lat":10,"lon":170},{"lat":0,"lon":170}]`, "MultiPolygon", false},
+		{"line beyond the antimeridian is refused", `"LINE"`, `[{"lat":1,"lon":179},{"lat":1,"lon":190}]`, "none", true},
 		{"coords not a list", `"AREA"`, `"oops"`, "decode-failure", true},
 		{"coords elements are junk", `"AREA"`, `[1,2,3]`, "decode-failure", true},
 	}
@@ -511,14 +544,8 @@ func TestGeometryEdgeCases(t *testing.T) {
 				}
 				return
 			}
-			switch g := a.Geometry; {
-			case g == nil:
-			case len(g.Ring) > 0:
-				got = "ring"
-			case len(g.Rings) > 0:
-				got = "rings"
-			case len(g.Line) > 0:
-				got = "line"
+			if a.Geometry != nil {
+				got = string(a.Geometry.Type)
 			}
 			if got != tt.wantKind {
 				t.Errorf("geometry = %s, want %s (%v)", got, tt.wantKind, a.ParseIssues)

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davidhinkes/hobbs/internal/geo"
 	"github.com/davidhinkes/hobbs/internal/model"
 )
 
@@ -161,18 +162,19 @@ func altitudes(r rawNotam, n *note) (lower, upper model.Altitude) {
 	return resolve(r.LowerLimit, r.MinimumFL, false, "lower limit"), resolve(r.UpperLimit, r.MaximumFL, true, "upper limit")
 }
 
-// parseCoord parses a Q-line position such as "3856N07727W".
-func parseCoord(s string) (model.LatLon, bool) {
+// parseCoord parses a Q-line position such as "3856N07727W" into a canonical
+// [lon, lat] position.
+func parseCoord(s string) (model.Position, bool) {
 	m := coordRe.FindStringSubmatch(strings.ToUpper(strings.TrimSpace(s)))
 	if m == nil {
-		return model.LatLon{}, false
+		return model.Position{}, false
 	}
 	latD, _ := strconv.Atoi(m[1])
 	latM, _ := strconv.Atoi(m[2])
 	lonD, _ := strconv.Atoi(m[4])
 	lonM, _ := strconv.Atoi(m[5])
 	if latM >= 60 || lonM >= 60 || latD > 90 || lonD > 180 {
-		return model.LatLon{}, false
+		return model.Position{}, false
 	}
 	lat := float64(latD) + float64(latM)/60
 	lon := float64(lonD) + float64(lonM)/60
@@ -182,7 +184,7 @@ func parseCoord(s string) (model.LatLon, bool) {
 	if m[6] == "W" {
 		lon = -lon
 	}
-	return model.LatLon{Lat: lat, Lon: lon}, true
+	return model.Position{lon, lat}, true
 }
 
 type geoJSON struct {
@@ -191,104 +193,150 @@ type geoJSON struct {
 	Geometries []geoJSON       `json:"geometries"`
 }
 
-func pos(c []float64) (model.LatLon, bool) {
+func pos(c []float64) (model.Position, bool) {
 	if len(c) < 2 {
-		return model.LatLon{}, false
+		return model.Position{}, false
 	}
-	lon, lat := c[0], c[1]
-	if math.IsNaN(lat) || math.IsNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180 {
-		return model.LatLon{}, false
+	p := model.Position{c[0], c[1]} // GeoJSON order: lon, lat
+	if math.IsNaN(p[0]) || math.IsNaN(p[1]) || p[0] < -180 || p[0] > 180 || p[1] < -90 || p[1] > 90 {
+		return model.Position{}, false
 	}
-	return model.LatLon{Lat: lat, Lon: lon}, true
+	return p, true
 }
 
-// geometry builds the spatial extent. All-or-nothing for areas: a partly
-// usable multi-part area is dropped (and flagged) rather than understated.
-// radiusNM, when known from the Q line, turns a point into a circle.
-func geometry(raw json.RawMessage, radiusNM *float64, n *note) *model.Geometry {
+// noGeoJSON reports whether the record carries no GeoJSON geometry at all.
+func noGeoJSON(raw json.RawMessage) bool {
+	t := bytes.TrimSpace(raw)
+	return len(t) == 0 || bytes.Equal(t, []byte("null"))
+}
+
+// noRadiusNM is the ICAO Q-line value meaning "no radius limit" (the NOTAM
+// applies to a whole region): it is not a 999 nm circle.
+const noRadiusNM = 999
+
+// circleGeometry translates a Q-line circle (or a bare point when no radius is
+// stated) into the canonical geometry, recording the circle as published.
+func circleGeometry(center model.Position, radiusNM *float64, n *note) (*model.Geometry, *model.Derivation) {
+	if radiusNM == nil {
+		g := model.NewPoint(center[0], center[1])
+		return &g, nil
+	}
+	if *radiusNM >= noRadiusNM {
+		n.add("radius %v means no radius limit (whole region); no geometry derived", *radiusNM)
+		return nil, nil
+	}
+	g, steps, err := geo.Circle(center, *radiusNM)
+	if err != nil {
+		n.add("circle could not be translated: %v", err)
+		return nil, nil
+	}
+	d := &model.Derivation{Steps: steps}
+	if g.Type != model.GeomPoint {
+		d.Circle = &model.Circle{Center: center, RadiusNM: *radiusNM}
+	}
+	return &g, d
+}
+
+// geometry translates the feature's GeoJSON into the canonical geometry. All
+// or nothing for areas: a partly usable multi-part area is dropped (and
+// flagged) rather than understated. A point with a stated radius is a circle.
+func geometry(raw json.RawMessage, radiusNM *float64, n *note) (*model.Geometry, *model.Derivation) {
 	if len(bytes.TrimSpace(raw)) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-		return nil
+		return nil, nil
 	}
 	var g geoJSON
 	if err := json.Unmarshal(raw, &g); err != nil {
 		n.add("geometry could not be decoded: %v", err)
-		return nil
+		return nil, nil
 	}
 	parts := g.Geometries
 	if g.Type != "GeometryCollection" {
 		parts = []geoJSON{g}
 	}
-	var points []model.LatLon
-	var rings [][]model.LatLon
+	var points []model.Position
+	var polys [][][]model.Position
 	for _, p := range parts {
 		switch p.Type {
 		case "Point":
 			var c []float64
 			if err := json.Unmarshal(p.Coords, &c); err != nil {
 				n.add("point geometry could not be decoded")
-				return nil
+				return nil, nil
 			}
 			ll, ok := pos(c)
 			if !ok {
 				n.add("point geometry out of range")
-				return nil
+				return nil, nil
 			}
 			points = append(points, ll)
 		case "Polygon", "MultiPolygon":
-			var polys [][][][]float64
+			var in [][][][]float64
 			if p.Type == "Polygon" {
 				var poly [][][]float64
 				if err := json.Unmarshal(p.Coords, &poly); err != nil {
 					n.add("polygon geometry could not be decoded")
-					return nil
+					return nil, nil
 				}
-				polys = [][][][]float64{poly}
-			} else if err := json.Unmarshal(p.Coords, &polys); err != nil {
+				in = [][][][]float64{poly}
+			} else if err := json.Unmarshal(p.Coords, &in); err != nil {
 				n.add("multipolygon geometry could not be decoded")
-				return nil
+				return nil, nil
 			}
-			for _, poly := range polys {
-				if len(poly) == 0 {
-					n.add("polygon has no rings")
-					return nil
-				}
-				if len(poly) > 1 {
-					n.add("polygon has %d hole(s) that are ignored, so the area is overstated", len(poly)-1)
-				}
-				ring := make([]model.LatLon, 0, len(poly[0]))
-				for _, c := range poly[0] {
-					ll, ok := pos(c)
-					if !ok {
-						n.add("polygon coordinate out of range")
-						return nil
+			for _, poly := range in {
+				rings := make([][]model.Position, 0, len(poly))
+				for _, r := range poly {
+					ring := make([]model.Position, 0, len(r))
+					for _, c := range r {
+						ll, ok := pos(c)
+						if !ok {
+							n.add("polygon coordinate out of range")
+							return nil, nil
+						}
+						ring = append(ring, ll)
 					}
-					ring = append(ring, ll)
+					if len(ring) < 4 || ring[0] != ring[len(ring)-1] {
+						n.add("polygon is not a closed ring of at least 4 points")
+						return nil, nil
+					}
+					rings = append(rings, ring)
 				}
-				if len(ring) < 4 || ring[0] != ring[len(ring)-1] {
-					n.add("polygon is not a closed ring of at least 4 points")
-					return nil
+				if len(rings) == 0 {
+					n.add("polygon has no rings")
+					return nil, nil
 				}
-				rings = append(rings, ring)
+				polys = append(polys, rings)
 			}
 		default:
 			n.add("unsupported geometry type %q", p.Type)
-			return nil
+			return nil, nil
 		}
 	}
 	switch {
-	case len(rings) > 0 && len(points) > 0:
+	case len(polys) > 0 && len(points) > 0:
 		n.add("geometry mixes points and polygons; not used")
-		return nil
-	case len(rings) == 1:
-		return &model.Geometry{Ring: rings[0]}
-	case len(rings) > 1:
-		return &model.Geometry{Rings: rings}
+		return nil, nil
+	case len(polys) > 0:
+		g, steps, err := geo.Polygons(polys)
+		if err != nil {
+			n.add("area could not be translated: %v", err)
+			return nil, nil
+		}
+		if len(steps) == 0 {
+			return &g, nil
+		}
+		return &g, &model.Derivation{Steps: steps}
 	case len(points) == 1:
-		return &model.Geometry{Center: &points[0], RadiusNM: radiusNM}
+		return circleGeometry(points[0], radiusNM, n)
 	case len(points) > 1:
-		n.add("%d points and no polygon; not used", len(points))
+		// A set of points with no area (e.g. the navaids of an airway restriction).
+		// Passed through exactly as published, duplicates included.
+		if radiusNM != nil {
+			n.add("a radius is stated for %d points; it is not applied", len(points))
+		}
+		g := model.NewMultiPoint(points)
+		return &g, nil
 	}
-	return nil
+	return nil, nil
 }
 
 func truthy(s flexString) bool {
@@ -352,22 +400,22 @@ func parseFeature(raw json.RawMessage) (model.Notam, *note) {
 	if r.Radius != "" {
 		if v, err := strconv.ParseFloat(string(r.Radius), 64); err == nil && v >= 0 {
 			radius = &v
-			a.RadiusNM = &v
 		} else {
 			n.add("radius %q not understood", r.Radius)
 		}
 	}
+	var qCenter *model.Position
 	if r.Coordinates != "" {
 		if ll, ok := parseCoord(string(r.Coordinates)); ok {
-			a.Center = &ll
+			qCenter = &ll
 		} else {
 			n.add("Q-line coordinates %q not understood", r.Coordinates)
 		}
 	}
-	a.Geometry = geometry(f.Geometry, radius, n)
-	if a.Geometry == nil && a.Center != nil {
-		// No usable GeoJSON geometry: fall back to the Q-line circle.
-		a.Geometry = &model.Geometry{Center: a.Center, RadiusNM: radius}
+	a.Geometry, a.GeometryDerivation = geometry(f.Geometry, radius, n)
+	if a.Geometry == nil && qCenter != nil && noGeoJSON(f.Geometry) {
+		// The record carries no GeoJSON geometry at all: use its Q-line circle.
+		a.Geometry, a.GeometryDerivation = circleGeometry(*qCenter, radius, n)
 	}
 
 	// Raw text: ICAO rendering preferred, local otherwise; all kept.

@@ -151,24 +151,45 @@ Consequences: responses can be large, and the failure mode is visible (too much 
 ## 4. Architecture
 
 - **Go**, official MCP Go SDK (verify Streamable HTTP support), stdlib `net/http`, `log/slog`. Stdio for dev, Streamable HTTP for hosting.
-- **Pollers, not pass-through.** One background poller per source on its `Cache-Control` cadence (AWC 60–180 s), with jitter and `singleflight`. Tool calls read the cache, so upstream load is constant regardless of callers.
-- **Snapshots carry provenance** (retrieved_at, upstream timestamp, ETag, hash, HTTP status, issues). The cache keeps the last good snapshot plus the most recent failure, so a failed fetch degrades to a flagged stale result.
-- **TFR adapter:** poll `getTfrList`; fetch `detail_<id>.xml` only for new or changed IDs (`mod_abs_time`); parse into normalized records; keep raw XML.
+- **No cache to start.** Every tool call fetches from the source live. Caching, polling and a snapshot store are premature until we measure a need (upstream load, latency or rate limits). Until then `served_from` is always `live`, and the `STALE_DATA` and `SOURCE_UNAVAILABLE` machinery is simply not exercised. If we add a cache later it must keep the same provenance contract (retrieval time, age, `served_from`).
 - **Fetch whole feeds.** Upstream filters are unreliable (spike), and we do not replace them with our own. Only filters the source supports are forwarded (NMS-API); otherwise the full published set is returned.
-- **Snapshot file on disk** so a restart does not begin with an empty cache; restored data keeps its original `retrieved_at`.
+- **TFR adapter:** read the TFR list, then each TFR's detail XML; normalize into the shared record model with the raw XML kept. Geometry is translated only where it is stated plainly (§4a); everything else is flagged.
 
 ```
 cmd/hobbs/             main: wiring
 internal/source/awc/   AWC adapters
 internal/source/tfr/   FAA TFR adapter
-internal/source/nms/   NOTAM adapter (feature-flagged)
+internal/source/nms/   NMS-API NOTAM adapter
 internal/model/        Advisory, Notam, Altitude, Geometry
 internal/provenance/   Envelope, Source record, Issue codes, completeness rules
-internal/cache/        snapshots, stale-while-error
+internal/geo/          translation of shapes into canonical geometry (no intersection logic)
 internal/mcpserver/    tools, input validation, response shaping
 ```
 
 Altitude is its own type: value, datum (MSL/AGL/FL/SFC/UNL), and an explicit "unknown" that is never zero. Time is UTC `time.Time` with an injectable clock. The server holds no logic that decides whether something is active or applicable.
+
+## 4a. Geography: one representation
+
+Every area, point and line the server returns is **one canonical form: an RFC 7946 GeoJSON geometry** (WGS84, positions as `[longitude, latitude]` in decimal degrees, longitude in [-180, 180], latitude in [-90, 90]). The five types are `Point`, `MultiPoint`, `LineString`, `Polygon` and `MultiPolygon`. Rings are closed and wound per the RFC (exterior counter-clockwise, holes clockwise). Whatever shape a source uses, the agent sees this.
+
+Translation is deterministic, lives in `internal/geo`, and is tested with exact values. Each record carries `geometry_derivation` listing every translation applied, so the source's own shape is always recoverable.
+
+| Source shape | Becomes | Derivation step |
+|---|---|---|
+| Circle (NOTAM Q-line point plus radius; later TFR circles) | `Polygon` (64-vertex geodesic on WGS84), or `MultiPolygon` across the antimeridian | `circle_to_circumscribed_polygon_64`; the circle as published is kept in `geometry_derivation.circle` |
+| Point with no radius | `Point` | none |
+| Several points (e.g. airway navaids) | `MultiPoint`, exactly as published (duplicates kept) | none |
+| Longitudes beyond ±180 (AWC) | wrapped into [-180, 180]: a ring wholly beyond is shifted by 360°, one straddling it is cut at ±180 | `antimeridian_shift`, `antimeridian_cut` |
+| Wrong winding | re-wound per the RFC | `ring_reoriented` |
+| Multi-part area (AWC `AREAS`, GeoJSON `MultiPolygon`) | `MultiPolygon` | none |
+| Zero-area part inside a multi-part area | dropped (no area is lost); never dropped if it has area | `degenerate_part_dropped` |
+| Open path with no stated type | `LineString`, flagged | none |
+
+The deliberate bias: where translation must approximate, it **overstates**. The circle polygon is circumscribed and padded, about 0.2% larger in radius (0.01 nm on a 5 nm circle), so an error shows as slightly extra data and never as a hidden miss.
+
+Not translated, so the geometry is left empty and the record is flagged (`GEOMETRY_UNAVAILABLE` / `parse_issues`), never guessed: radius 999 (ICAO "no radius limit", i.e. a whole region, not a circle); circles near a pole (beyond 85° latitude) or over 500 nm; a polygon with holes that crosses the antimeridian; mixed point-and-polygon collections; a multi-part area with any unusable part; lines that cross the antimeridian.
+
+This is translation only. There is no intersection, containment or "does this apply" logic anywhere (§0).
 
 ## 5. Tools (v1)
 

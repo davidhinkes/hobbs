@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davidhinkes/hobbs/internal/geo"
 	"github.com/davidhinkes/hobbs/internal/model"
 )
 
@@ -87,11 +88,14 @@ func (c *coordSet) UnmarshalJSON(b []byte) error {
 }
 
 // Longitudes beyond +/-180 occur in antimeridian-crossing features (e.g. 196.3),
-// so the accepted range is wider than a plain WGS84 longitude.
+// so the accepted input range is wider than a plain WGS84 longitude. They are
+// translated into canonical RFC 7946 geometry by internal/geo.
 const maxAbsLon = 360
 
-func convert(cs []coord, n *note, what string) ([]model.LatLon, bool) {
-	pts := make([]model.LatLon, 0, len(cs))
+// positions converts upstream points to canonical [lon, lat] positions,
+// validating ranges.
+func positions(cs []coord, n *note, what string) ([]model.Position, bool) {
+	pts := make([]model.Position, 0, len(cs))
 	for i, c := range cs {
 		if c.Lat == nil || c.Lon == nil {
 			n.add("%s coordinate %d missing lat/lon", what, i)
@@ -102,91 +106,102 @@ func convert(cs []coord, n *note, what string) ([]model.LatLon, bool) {
 			n.add("%s coordinate %d out of range (%v, %v)", what, i, lat, lon)
 			return nil, false
 		}
-		pts = append(pts, model.LatLon{Lat: lat, Lon: lon})
+		pts = append(pts, model.Position{lon, lat})
 	}
 	return pts, true
 }
 
-func isClosedRing(p []model.LatLon) bool { return len(p) >= 4 && p[0] == p[len(p)-1] }
+func isClosedRing(p []model.Position) bool { return len(p) >= 4 && p[0] == p[len(p)-1] }
 
-// buildGeometry builds a geometry from a feed's coordinates. kind is the
-// feed's stated type ("AREA", "AREAS", "LINE") or "" to infer. It returns nil
-// and records a note when the coordinates cannot be used; coordinates are
-// never altered or auto-closed, and a multi-part area is all-or-nothing so an
-// area is never understated.
-func buildGeometry(cs coordSet, kind string, n *note) *model.Geometry {
+// buildGeometry translates a feed's coordinates into the canonical geometry
+// (Point/LineString/Polygon/MultiPolygon, RFC 7946). kind is the feed's stated
+// type ("AREA", "AREAS", "LINE") or "" to infer. It returns nil and records a
+// note when the coordinates cannot be used; coordinates are never auto-closed,
+// and a multi-part area is all-or-nothing so an area is never understated.
+// The derivation lists any translation applied (winding, antimeridian).
+func buildGeometry(cs coordSet, kind string, n *note) (*model.Geometry, *model.Derivation) {
 	if len(cs.rings) == 0 {
 		n.add("no coordinates")
-		return nil
+		return nil, nil
 	}
-	rings := make([][]model.LatLon, 0, len(cs.rings))
+	rings := make([][]model.Position, 0, len(cs.rings))
 	for i, r := range cs.rings {
-		pts, ok := convert(r, n, fmt.Sprintf("part %d", i))
+		pts, ok := positions(r, n, fmt.Sprintf("part %d", i))
 		if !ok {
-			return nil
+			return nil, nil
 		}
 		rings = append(rings, pts)
 	}
-	allClosed := func() bool {
+	areas := func() (*model.Geometry, *model.Derivation) {
+		polys := make([][][]model.Position, 0, len(rings))
 		for _, r := range rings {
 			if !isClosedRing(r) {
-				return false
+				n.add("area has a part that is not a closed ring of at least 4 points (%d points)", len(r))
+				return nil, nil
+			}
+			polys = append(polys, [][]model.Position{r})
+		}
+		g, steps, err := geo.Polygons(polys)
+		if err != nil {
+			n.add("area could not be translated: %v", err)
+			return nil, nil
+		}
+		return &g, derivation(steps)
+	}
+	line := func(why string) (*model.Geometry, *model.Derivation) {
+		if cs.nested || len(rings[0]) < 2 {
+			n.add("line must be a single list of at least 2 points")
+			return nil, nil
+		}
+		for _, p := range rings[0] {
+			if p[0] < -180 || p[0] > 180 {
+				n.add("line crosses the antimeridian; not represented")
+				return nil, nil
 			}
 		}
-		return true
-	}
-	multi := func() *model.Geometry {
-		if !allClosed() {
-			n.add("multi-part area has a part that is not a closed ring of at least 4 points")
-			return nil
+		if why != "" {
+			n.add("%s", why)
 		}
-		if len(rings) == 1 {
-			return &model.Geometry{Ring: rings[0]}
-		}
-		return &model.Geometry{Rings: rings}
+		g := model.NewLineString(rings[0])
+		return &g, nil
 	}
 
 	switch k := strings.ToUpper(kind); k {
 	case "LINE":
-		if cs.nested || len(rings[0]) < 2 {
-			n.add("line must be a single list of at least 2 points")
-			return nil
-		}
-		return &model.Geometry{Line: rings[0]}
+		return line("")
 	case "AREA":
 		if cs.nested {
 			n.add("geometry type AREA but coordinates are multi-part")
-			return nil
+			return nil, nil
 		}
-		if !isClosedRing(rings[0]) {
-			n.add("area is not a closed ring of at least 4 points (%d points)", len(rings[0]))
-			return nil
-		}
-		return &model.Geometry{Ring: rings[0]}
+		return areas()
 	case "AREAS":
 		if !cs.nested {
 			n.add("geometry type AREAS but coordinates are a single list")
-			return nil
+			return nil, nil
 		}
-		return multi()
+		return areas()
 	case "":
-		if cs.nested {
-			return multi()
-		}
-		if isClosedRing(rings[0]) {
-			return &model.Geometry{Ring: rings[0]}
+		if cs.nested || isClosedRing(rings[0]) {
+			return areas()
 		}
 		if len(rings[0]) >= 2 {
 			// Open path with no stated type: report it as a line, not an area.
-			n.add("geometry type not stated and path is not closed; treated as a line")
-			return &model.Geometry{Line: rings[0]}
+			return line("geometry type not stated and path is not closed; treated as a line")
 		}
 		n.add("cannot determine geometry from %d point(s)", len(rings[0]))
-		return nil
+		return nil, nil
 	default:
 		n.add("unrecognized geometry type %q", kind)
+		return nil, nil
+	}
+}
+
+func derivation(steps []string) *model.Derivation {
+	if len(steps) == 0 {
 		return nil
 	}
+	return &model.Derivation{Steps: steps}
 }
 
 func orderWindow(a *model.Advisory, n *note) {
@@ -278,7 +293,7 @@ func parseAirSigmet(src string, raw json.RawMessage) (model.Advisory, *note) {
 	if v, ok := extent(r.Hi1, r.Hi2, true); ok {
 		a.Upper = feetAlt(v)
 	}
-	a.Geometry = buildGeometry(r.Coords, "", n)
+	a.Geometry, a.GeometryDerivation = buildGeometry(r.Coords, "", n)
 	orderWindow(&a, n)
 	return a, n
 }
@@ -376,7 +391,7 @@ func parseGAirmet(src string, raw json.RawMessage) (model.Advisory, *note) {
 	if kind == "" {
 		kind = string(r.Geom)
 	}
-	a.Geometry = buildGeometry(r.Coords, kind, n)
+	a.Geometry, a.GeometryDerivation = buildGeometry(r.Coords, kind, n)
 	orderWindow(&a, n)
 	return a, n
 }
@@ -434,7 +449,7 @@ func parseIntlSigmet(src string, raw json.RawMessage) (model.Advisory, *note) {
 			a.Lower = feetAlt(float64(*r.Base))
 		}
 	}
-	a.Geometry = buildGeometry(r.Coords, string(r.Geom), n)
+	a.Geometry, a.GeometryDerivation = buildGeometry(r.Coords, string(r.Geom), n)
 	orderWindow(&a, n)
 	return a, n
 }
@@ -477,7 +492,7 @@ func parseCWA(src string, raw json.RawMessage) (model.Advisory, *note) {
 	if r.Base != nil {
 		a.Lower = feetAlt(float64(*r.Base))
 	}
-	a.Geometry = buildGeometry(r.Coords, string(r.Geom), n)
+	a.Geometry, a.GeometryDerivation = buildGeometry(r.Coords, string(r.Geom), n)
 	orderWindow(&a, n)
 	return a, n
 }
