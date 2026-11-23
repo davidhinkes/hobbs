@@ -29,8 +29,8 @@ go build -o hobbs ./cmd/hobbs
 # with NOTAMs from the FAA NMS-API staging environment:
 HOBBS_NMS_CLIENT_ID=... HOBBS_NMS_CLIENT_SECRET=... ./hobbs -nms-url https://api-staging.cgifederal-aim.com
 
-# hosted over Streamable HTTP (requires at least one bearer token):
-HOBBS_TOKENS=<long-random-token> HOBBS_NMS_CLIENT_ID=... HOBBS_NMS_CLIENT_SECRET=... ./hobbs -http :8080 -nms-url https://api-staging.cgifederal-aim.com
+# hosted over Streamable HTTP (the endpoint is open; there is no authentication):
+HOBBS_NMS_CLIENT_ID=... HOBBS_NMS_CLIENT_SECRET=... ./hobbs -http :8080 -nms-url https://api-staging.cgifederal-aim.com
 ```
 
 | Flag | Default | Meaning |
@@ -42,7 +42,6 @@ HOBBS_TOKENS=<long-random-token> HOBBS_NMS_CLIENT_ID=... HOBBS_NMS_CLIENT_SECRET
 
 | Secret (environment only) | Needed for |
 |---|---|
-| `HOBBS_TOKENS` | `-http`: comma-separated bearer tokens, each at least 16 characters |
 | `HOBBS_NMS_CLIENT_ID`, `HOBBS_NMS_CLIENT_SECRET` | `-nms-url` |
 
 Example MCP client configuration (stdio):
@@ -58,9 +57,9 @@ The repo has a `Dockerfile`. On Railway, deploy it from GitHub and set:
 - **Start command:** `/usr/local/bin/hobbs -http :8080 -nms-url https://api-staging.cgifederal-aim.com` (drop `-nms-url` for weather only)
 - **Public domain** targeting port `8080`; the MCP endpoint is `https://<domain>/mcp`
 - **Health check:** `/healthz`
-- **Variables (secrets):** `HOBBS_TOKENS`, `HOBBS_NMS_CLIENT_ID`, `HOBBS_NMS_CLIENT_SECRET`. The server refuses to start without a token.
+- **Variables (secrets):** `HOBBS_NMS_CLIENT_ID`, `HOBBS_NMS_CLIENT_SECRET` (only with `-nms-url`)
 
-MCP clients connect with the header `Authorization: Bearer <one of HOBBS_TOKENS>`.
+The endpoint is open: anyone with the URL can use it, and the global rate limit (`-rate`) is the only guard on upstream quotas.
 
 ## Develop
 

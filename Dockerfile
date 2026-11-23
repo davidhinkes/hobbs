@@ -12,6 +12,6 @@ COPY --from=build /out/hobbs /usr/local/bin/hobbs
 USER hobbs
 EXPOSE 8080
 # Configuration is by flag (set the start command on the host); secrets come
-# from the environment: HOBBS_TOKENS, HOBBS_NMS_CLIENT_ID, HOBBS_NMS_CLIENT_SECRET.
+# from the environment: HOBBS_NMS_CLIENT_ID, HOBBS_NMS_CLIENT_SECRET.
 ENTRYPOINT ["/usr/local/bin/hobbs"]
 CMD ["-http", ":8080"]

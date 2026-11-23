@@ -118,7 +118,7 @@ We make no assumptions about applicability: unknown stays unknown, and the serve
 
 ## 2. Users and scope
 
-Single-maintainer hobby project. Callers are AI agents, not people. US focus; international SIGMETs included because AWC provides them. No auth beyond a bearer token per agent plus a global rate limit.
+Single-maintainer hobby project. Callers are AI agents, not people. US focus; international SIGMETs included because AWC provides them. No authentication: the hosted endpoint is open, with a global rate limit.
 
 ### Scope: a data layer, not an advisor
 
@@ -206,9 +206,8 @@ Input errors come back as `isError` results with a message the agent can act on,
 ### Transports and hosting
 
 - **stdio** (default) for a local MCP client.
-- **Streamable HTTP** (`-http :8080`; on Railway `-http :$PORT`): stateless, at `/mcp`, with an open `/healthz`. It refuses to start without at least one bearer token (`HOBBS_TOKENS`, each at least 16 characters) and applies a global rate limit (`-rate`, default 5 per second, with bursts up to twice the rate) so a runaway agent loop cannot exhaust upstream quotas. Unauthenticated requests never reach a source and do not consume the rate budget.
-- **Airworthy (`-airworthy`, false by default).** Every envelope has an `airworthy` field: whether the response may be used for flight planning and navigation (defined once, in the `provenance` package). By default it is `false`, every response from every tool also carries a `NOT_AIRWORTHY` warning (so nothing reads as complete), and the server instructions and every tool description start with "NOT AIRWORTHY". Starting with `-airworthy` is accepted only without NOTAMs or with the FAA's production NMS-API URL; any other `-nms-url`, staging included, counts as test data, so it can never be declared airworthy. Airworthy is necessary, not sufficient: it does not make the data complete or correct, which completeness and the as-is disclaimer still govern. `source_status` reports which NMS environment is in use.
-- **Configuration is by command-line flag; secrets only in environment variables** (`HOBBS_TOKENS`, `HOBBS_NMS_CLIENT_ID`, `HOBBS_NMS_CLIENT_SECRET`), so they never appear in process listings or shell history; on Railway, as service variables. The NOTAM source is chosen with `-nms-url` (empty, the default, turns NOTAMs off). Logs go to stderr and never contain credentials.
+- **Streamable HTTP** (`-http :8080`; on Railway `-http :$PORT`): stateless, at `/mcp`, with an open `/healthz`. It is open, with no authentication (a deliberate choice), and applies a global rate limit (`-rate`, default 5 per second, with bursts up to twice the rate) so a runaway agent loop cannot exhaust upstream quotas. - **Airworthy (`-airworthy`, false by default).** Every envelope has an `airworthy` field: whether the response may be used for flight planning and navigation (defined once, in the `provenance` package). By default it is `false`, every response from every tool also carries a `NOT_AIRWORTHY` warning (so nothing reads as complete), and the server instructions and every tool description start with "NOT AIRWORTHY". Starting with `-airworthy` is accepted only without NOTAMs or with the FAA's production NMS-API URL; any other `-nms-url`, staging included, counts as test data, so it can never be declared airworthy. Airworthy is necessary, not sufficient: it does not make the data complete or correct, which completeness and the as-is disclaimer still govern. `source_status` reports which NMS environment is in use.
+- **Configuration is by command-line flag; secrets only in environment variables** (`HOBBS_NMS_CLIENT_ID`, `HOBBS_NMS_CLIENT_SECRET`), so they never appear in process listings or shell history; on Railway, as service variables. The NOTAM source is chosen with `-nms-url` (empty, the default, turns NOTAMs off). Logs go to stderr and never contain credentials.
 
 ## 6. Safety and trust
 
@@ -216,7 +215,7 @@ Input errors come back as `isError` results with a message the agent can act on,
 - **Not presented as FAA data.** The NMS-API Terms of Service allow redistribution but say redistributed information may not be characterized as FAA data. The disclaimer states the data is a best-effort copy, not FAA/NWS data as published, and not endorsed. Sources are still named for provenance; confirm the attribution wording with the FAA if it becomes an issue.
 - Advisory only. The FAA briefing channels remain the legal standard.
 - NOTAM/TFR free text is untrusted: returned in a delimited `raw_text` field, never merged into summaries, and tool descriptions say it is data, not instructions.
-- Hosted: bearer token per agent and a global rate limit so a runaway loop cannot exhaust upstream quotas. NOTAMs are switched off by leaving out `-nms-url` (responses then say the source is not enabled). `/healthz` only says the process is up; `source_status` checks the sources. An external uptime alert is still to do.
+- Hosted: the endpoint is open (no authentication, by choice); a global rate limit is the guard against a runaway loop exhausting upstream quotas. Anyone with the URL uses the FAA credentials, for which the operator is responsible under the NMS terms. NOTAMs are switched off by leaving out `-nms-url` (responses then say the source is not enabled). `/healthz` only says the process is up; `source_status` checks the sources. An external uptime alert is still to do.
 - Credentials (NMS client id/secret) only in environment variables.
 
 ## 7. Open items

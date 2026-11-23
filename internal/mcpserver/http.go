@@ -1,24 +1,18 @@
 package mcpserver
 
 import (
-	"crypto/sha256"
-	"crypto/subtle"
-	"errors"
 	"math"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// HTTPConfig configures the hosted (Streamable HTTP) transport.
+// HTTPConfig configures the hosted (Streamable HTTP) transport. The endpoint
+// is open: there is no authentication.
 type HTTPConfig struct {
-	// Tokens are the accepted bearer tokens, one per agent or user. At least
-	// one is required: the hosted server never runs unauthenticated.
-	Tokens []string
 	// RatePerSecond bounds total requests so a runaway agent loop cannot
 	// exhaust upstream quotas; bursts of up to twice the rate are allowed.
 	// Zero uses the default.
@@ -57,44 +51,19 @@ func (l *limiter) allow() (bool, time.Duration) {
 	return false, time.Duration((1 - l.tokens) / l.rate * float64(time.Second))
 }
 
-// Handler serves the MCP endpoint at /mcp and an unauthenticated /healthz.
-func Handler(srv *mcp.Server, cfg HTTPConfig) (http.Handler, error) {
-	var toks [][32]byte
-	for _, t := range cfg.Tokens {
-		if t = strings.TrimSpace(t); t != "" {
-			if len(t) < 16 {
-				return nil, errors.New("mcpserver: bearer tokens must be at least 16 characters")
-			}
-			toks = append(toks, sha256.Sum256([]byte(t)))
-		}
-	}
-	if len(toks) == 0 {
-		return nil, errors.New("mcpserver: at least one bearer token is required for the HTTP transport")
-	}
+// Handler serves the MCP endpoint at /mcp, behind a global rate limit, and
+// /healthz.
+func Handler(srv *mcp.Server, cfg HTTPConfig) http.Handler {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
 	if cfg.RatePerSecond <= 0 {
 		cfg.RatePerSecond = 5
 	}
-	burst := int(math.Ceil(2 * cfg.RatePerSecond))
-	lim := newLimiter(cfg.RatePerSecond, burst, cfg.Now)
+	lim := newLimiter(cfg.RatePerSecond, int(math.Ceil(2*cfg.RatePerSecond)), cfg.Now)
 
 	mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
 		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
-
-	authed := func(r *http.Request) bool {
-		h := r.Header.Get("Authorization")
-		if len(h) < 8 || !strings.EqualFold(h[:7], "bearer ") {
-			return false
-		}
-		got := sha256.Sum256([]byte(strings.TrimSpace(h[7:])))
-		ok := 0
-		for _, t := range toks { // compare against every token: no early exit
-			ok |= subtle.ConstantTimeCompare(got[:], t[:])
-		}
-		return ok == 1
-	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -102,11 +71,6 @@ func Handler(srv *mcp.Server, cfg HTTPConfig) (http.Handler, error) {
 		w.Write([]byte("ok\n"))
 	})
 	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
-		if !authed(r) {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="hobbs"`)
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
 		if ok, wait := lim.allow(); !ok {
 			w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
 			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
@@ -114,5 +78,5 @@ func Handler(srv *mcp.Server, cfg HTTPConfig) (http.Handler, error) {
 		}
 		mcpHandler.ServeHTTP(w, r)
 	})
-	return mux, nil
+	return mux
 }

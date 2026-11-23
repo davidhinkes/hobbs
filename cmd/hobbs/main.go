@@ -8,7 +8,6 @@
 // read from environment variables only, so they never appear in process
 // listings or shell history:
 //
-//	HOBBS_TOKENS        comma-separated bearer tokens for -http (each >= 16 chars)
 //	HOBBS_NMS_CLIENT_ID       FAA NMS-API credentials, needed with -nms-url
 //	HOBBS_NMS_CLIENT_SECRET
 package main
@@ -23,7 +22,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -134,12 +132,7 @@ func run(log *slog.Logger, o options) error {
 		return srv.Run(ctx, &mcp.StdioTransport{})
 	}
 
-	handler, err := mcpserver.Handler(srv, mcpserver.HTTPConfig{
-		Tokens: strings.Split(os.Getenv("HOBBS_TOKENS"), ","), RatePerSecond: o.rate,
-	})
-	if err != nil {
-		return err
-	}
+	handler := mcpserver.Handler(srv, mcpserver.HTTPConfig{RatePerSecond: o.rate})
 	hs := &http.Server{Addr: o.http, Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 3 * time.Minute, IdleTimeout: 2 * time.Minute}
 	go func() {
 		<-ctx.Done()

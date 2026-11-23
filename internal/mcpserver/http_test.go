@@ -13,8 +13,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const goodToken = "test-token-0123456789abcdef"
-
 type clock struct {
 	mu sync.Mutex
 	t  time.Time
@@ -27,28 +25,20 @@ func (c *clock) advance(d time.Duration) {
 	c.mu.Unlock()
 }
 
-func hosted(t *testing.T, cfg HTTPConfig) (*httptest.Server, *upstreams) {
+func hosted(t *testing.T, cfg HTTPConfig) *httptest.Server {
 	t.Helper()
-	u := newUpstreams(t)
-	srv, err := New(u.deps(t, true, true))
+	srv, err := New(newUpstreams(t).deps(t, true, false))
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := Handler(srv, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ts := httptest.NewServer(h)
+	ts := httptest.NewServer(Handler(srv, cfg))
 	t.Cleanup(ts.Close)
-	return ts, u
+	return ts
 }
 
-func do(t *testing.T, method, url, auth, body string) *http.Response {
+func post(t *testing.T, url, body string) *http.Response {
 	t.Helper()
-	req, _ := http.NewRequest(method, url, strings.NewReader(body))
-	if auth != "" {
-		req.Header.Set("Authorization", auth)
-	}
+	req, _ := http.NewRequest("POST", url, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	resp, err := http.DefaultClient.Do(req)
@@ -59,69 +49,31 @@ func do(t *testing.T, method, url, auth, body string) *http.Response {
 	return resp
 }
 
-func TestHandlerRefusesToRunWithoutUsableTokens(t *testing.T) {
-	srv, _ := New(newUpstreams(t).deps(t, false, false))
-	for name, toks := range map[string][]string{"none": nil, "blank": {"", "  "}, "too short": {"short"}, "one too short": {goodToken, "short"}} {
-		if _, err := Handler(srv, HTTPConfig{Tokens: toks}); err == nil {
-			t.Errorf("%s: the hosted server must never run unauthenticated or with weak tokens", name)
-		}
+func TestRoutes(t *testing.T) {
+	ts := hosted(t, HTTPConfig{RatePerSecond: 100})
+	resp, err := http.Get(ts.URL + "/healthz")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := Handler(srv, HTTPConfig{Tokens: []string{goodToken, "another-token-0123456789"}}); err != nil {
-		t.Error(err)
-	}
-}
-
-func TestAuthentication(t *testing.T) {
-	ts, u := hosted(t, HTTPConfig{Tokens: []string{goodToken, "second-token-0123456789"}, RatePerSecond: 100})
-	initialize := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}`
-
-	for name, auth := range map[string]string{
-		"no header":      "",
-		"wrong token":    "Bearer wrong-token-0123456789",
-		"basic scheme":   "Basic " + goodToken,
-		"no scheme":      goodToken,
-		"empty bearer":   "Bearer ",
-		"prefix of real": "Bearer " + goodToken[:20],
-		"extended real":  "Bearer " + goodToken + "x",
-	} {
-		t.Run("rejects "+name, func(t *testing.T) {
-			resp := do(t, "POST", ts.URL+"/mcp", auth, initialize)
-			if resp.StatusCode != 401 || !strings.Contains(resp.Header.Get("WWW-Authenticate"), "Bearer") {
-				t.Errorf("status = %d, www-authenticate = %q", resp.StatusCode, resp.Header.Get("WWW-Authenticate"))
-			}
-		})
-	}
-	for name, auth := range map[string]string{"first": "Bearer " + goodToken, "second": "Bearer second-token-0123456789", "lowercase scheme": "bearer " + goodToken} {
-		t.Run("accepts "+name, func(t *testing.T) {
-			resp := do(t, "POST", ts.URL+"/mcp", auth, initialize)
-			if resp.StatusCode != 200 {
-				b, _ := io.ReadAll(resp.Body)
-				t.Errorf("status = %d: %s", resp.StatusCode, b)
-			}
-		})
-	}
-	// Rejected requests must not reach any upstream.
-	if len(u.lastNotamQuery) != 0 || len(u.awcCalls) != 0 {
-		t.Errorf("unauthenticated traffic reached the sources: %v %v", u.lastNotamQuery, u.awcCalls)
-	}
-	// Health is open, and says nothing about sources (there is no cache to report).
-	resp := do(t, "GET", ts.URL+"/healthz", "", "")
 	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
 	if resp.StatusCode != 200 || strings.TrimSpace(string(b)) != "ok" {
 		t.Errorf("healthz = %d %q", resp.StatusCode, b)
 	}
+	// The MCP endpoint is open: no credentials are needed.
+	if r := post(t, ts.URL+"/mcp", `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}`); r.StatusCode != 200 {
+		t.Errorf("/mcp = %d", r.StatusCode)
+	}
 	// Unknown paths are not served.
-	if resp := do(t, "GET", ts.URL+"/", "Bearer "+goodToken, ""); resp.StatusCode != 404 {
+	if resp, _ := http.Get(ts.URL + "/"); resp.StatusCode != 404 {
 		t.Errorf("/ = %d", resp.StatusCode)
 	}
 }
 
 func TestRateLimit(t *testing.T) {
 	c := &clock{t: fixedNow}
-	ts, _ := hosted(t, HTTPConfig{Tokens: []string{goodToken}, RatePerSecond: 2, Now: c.now}) // burst = 2 x rate = 4
-	hit := func() *http.Response {
-		return do(t, "POST", ts.URL+"/mcp", "Bearer "+goodToken, `{"jsonrpc":"2.0","id":1,"method":"ping"}`)
-	}
+	ts := hosted(t, HTTPConfig{RatePerSecond: 2, Now: c.now}) // burst = 2 x rate = 4
+	hit := func() *http.Response { return post(t, ts.URL+"/mcp", `{"jsonrpc":"2.0","id":1,"method":"ping"}`) }
 	for i := 0; i < 4; i++ {
 		if r := hit(); r.StatusCode == 429 {
 			t.Fatalf("request %d limited inside the burst", i+1)
@@ -138,34 +90,20 @@ func TestRateLimit(t *testing.T) {
 	if r := hit(); r.StatusCode != 429 {
 		t.Error("only one token had refilled")
 	}
-	// Unauthenticated requests do not consume the budget.
-	c.advance(2 * time.Second)
-	for i := 0; i < 20; i++ {
-		do(t, "POST", ts.URL+"/mcp", "", "{}")
+	// Health checks are not rate limited.
+	for i := 0; i < 10; i++ {
+		if resp, _ := http.Get(ts.URL + "/healthz"); resp.StatusCode != 200 {
+			t.Fatal("healthz must not be rate limited")
+		}
 	}
-	if r := hit(); r.StatusCode == 429 {
-		t.Error("bad-auth traffic must not drain the limiter for legitimate callers")
-	}
-}
-
-type bearer struct{ token string }
-
-func (b bearer) RoundTrip(r *http.Request) (*http.Response, error) {
-	r = r.Clone(r.Context())
-	if b.token != "" {
-		r.Header.Set("Authorization", "Bearer "+b.token)
-	}
-	return http.DefaultTransport.RoundTrip(r)
 }
 
 func TestEndToEndOverHTTP(t *testing.T) {
-	ts, _ := hosted(t, HTTPConfig{Tokens: []string{goodToken}, RatePerSecond: 100})
+	ts := hosted(t, HTTPConfig{RatePerSecond: 100})
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-
-	// A real MCP client with the token: lists tools and gets data over the wire.
 	cs, err := mcp.NewClient(&mcp.Implementation{Name: "t", Version: "0"}, nil).Connect(ctx,
-		&mcp.StreamableClientTransport{Endpoint: ts.URL + "/mcp", HTTPClient: &http.Client{Transport: bearer{goodToken}}}, nil)
+		&mcp.StreamableClientTransport{Endpoint: ts.URL + "/mcp"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,11 +115,5 @@ func TestEndToEndOverHTTP(t *testing.T) {
 	res, r := call(t, cs, "get_weather_advisories", map[string]any{"kinds": []string{"CWA"}})
 	if res.IsError || len(r.Provenance.Sources) != 1 || r.Disclaimer == "" {
 		t.Errorf("isError=%v %+v", res.IsError, r.Provenance.Sources)
-	}
-
-	// Without the token the client cannot even connect.
-	if _, err := mcp.NewClient(&mcp.Implementation{Name: "t", Version: "0"}, nil).Connect(ctx,
-		&mcp.StreamableClientTransport{Endpoint: ts.URL + "/mcp", HTTPClient: &http.Client{Transport: bearer{""}}}, nil); err == nil {
-		t.Error("a client with no token must not connect")
 	}
 }
