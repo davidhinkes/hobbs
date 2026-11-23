@@ -103,7 +103,7 @@ Consequences: results are complete within the query, in a stable and documented 
 |---|---|---|---|
 | AIRMET (G-AIRMET), SIGMET, intl SIGMET, CWA | NOAA AWC Data API | public, no key | verified in spike |
 | TFRs | FAA `tfr.faa.gov` list + per-TFR XML | public, undocumented | verified in spike |
-| NOTAMs (US) | FAA NOTAM Management Service API | credentials by request: the FAA NMS page links "Request API Access" to 7-AWA-NAIMES@faa.gov (program questions: notams@faa.gov); hosted-redistribution terms must be confirmed | pending |
+| NOTAMs (US) | FAA NOTAM Management Service API (NMS-API) | credentials by request: the FAA NMS page links "Request API Access" to 7-AWA-NAIMES@faa.gov (program questions: notams@faa.gov); staging access granted and verified (see SPIKE.md); production onboarding pending; ToS allow redistribution but not as "FAA data" |  staging verified |
 
 ## 4. Architecture
 

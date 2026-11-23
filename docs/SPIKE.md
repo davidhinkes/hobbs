@@ -33,6 +33,19 @@ Base: `https://aviationweather.gov/api/data/<name>?format=json`
 - **G-AIRMET windows:** `validTime` to `expireTime` (= validTime + 3h) per forecast-hour snapshot.
 - **Sloping limits** (`altitudeLow1/2`, `altitudeHi1/2`): the adapter takes the widest extent so a boundary is never understated.
 
+## FAA NMS-API (NOTAMs) — verified against staging, 2026-11-22
+
+Access: requested by email per the FAA NMS page; the FAA issued staging credentials (OAuth2 client credentials) and an OpenAPI spec (v1.0.18). Production onboarding is a separate step through the NOTAM Service Center. Terms of Service apply (redistribution allowed but not as "FAA data"; no warranty; indemnification clause).
+
+- **Hosts:** staging `https://api-staging.cgifederal-aim.com` (token at `/v1/auth/token`, API at `/nmsapi/v1/...`); production per the spec `https://api-nms.aim.faa.gov/nmsapi`. The token endpoint is outside the `/nmsapi` path.
+- **Auth:** `POST /v1/auth/token` with HTTP Basic (client id/secret) and `grant_type=client_credentials`. Bearer token lasts 1799 s; keys do not expire. A 401 `{"status":"401","message":"Access Token is Invalid or Expired"}` means the *token* expired; bad credentials return `invalid_client`.
+- **Request:** `GET /nmsapi/v1/notams` with required header `nmsResponseFormat: GEOJSON|AIXM`, plus filters (AND-ed): `location`, `latitude`+`longitude`+`radius` (radius 0-100 nm; all three together), `effectiveStartDate`+`effectiveEndDate` (together), `lastUpdatedDate` (limited to the prior 24 h), `classification`, `accountability`, `feature`, `freeText`, `notamNumber` (needs location or accountability), `nmsId`. No filters gives 400. `classification` alone returns a short-lived download link, not data.
+- **Zero results:** HTTP 200 `{"status":"Success","data":{}}` (no `geojson` key), unlike AWC's 204. Errors: 400 `{"status":"Failure","message":...}`, 401 as above (empty body when no auth at all).
+- **Response:** `data.geojson` is a list of Features. `properties.coreNOTAMData` holds `notam` (id, number, year, type, issued, affectedFir, selectionCode, minimumFl/maximumFl, location, icaoLocation, effectiveStart/End, text, classification, accountId, lastUpdated, coordinates, radius, series, purpose, traffic, scope, estimated, lowerLimit, upperLimit, schedule) and `notamTranslation` (`ICAO` `formattedText` and/or `LOCAL_FORMAT` `simpleText`). Geometry is a GeometryCollection of Points or Polygons.
+- **Variation seen** (181 records for KIAD, 540 within 25 nm): `type` missing on ~3-11%; `effectiveEnd` is `"PERM"` (13-44 records) or missing (1); `estimated` is `"true"`/`"True"`; `lowerLimit`/`upperLimit` are strings like `SFC`, `UNL`, `FL200`, `6000FT AMSL`, `100FT AGL`, and bare `135FT` (no datum, mostly obstacles); minimumFl/maximumFl `000`/`999` mean no vertical limit stated; `radius` is `"005"` or `"5"`; Q-line `coordinates` are `3856N07727W`; some records have only one translation; no polygon holes seen; mixed point/polygon geometry not seen.
+- **Staging is not operational:** the data includes entries like "AIRSPACE TESTED FOR CUTOVER SIMULATION". The adapter flags every non-production snapshot with `NON_PRODUCTION_SOURCE`.
+- **Volume:** a single airport returns hundreds of KB; no rate-limit headers were seen, limits are unknown. The FAQ suggests polling "the last 3 minutes".
+
 ## FAA TFRs (tfr.faa.gov) — undocumented
 
 - `GET /tfrapi/getTfrList` — 47 TFRs, JSON, `Cache-Control: no-cache`. Fields: `notam_id`, `facility`, `state`, `type`, `description`, `mod_date`, `mod_abs_time`, `is_new`, `gid`. **No geometry, no altitudes, no dates beyond the free-text description.**

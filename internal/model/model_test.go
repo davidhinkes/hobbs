@@ -45,7 +45,7 @@ func TestUnknownAltitudeIsNotZero(t *testing.T) {
 }
 
 func valid() Notam {
-	return Notam{ID: "FDC 6/9306", RawText: "!FDC 6/9306 ...", Lower: AGL(0), Upper: MSL(4000),
+	return Notam{ID: "FDC 6/9306", RawText: "!FDC 6/9306 ...", RawFormat: RawOfficialText, Lower: AGL(0), Upper: MSL(4000),
 		EffectiveFrom: tp(t0), EffectiveTo: tp(t1)}
 }
 

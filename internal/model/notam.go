@@ -47,12 +47,33 @@ type Notam struct {
 
 	// Text is the NOTAM body (item E) as stated.
 	Text string `json:"text,omitempty"`
-	// RawText is the complete official text, unaltered. Always present.
-	RawText string `json:"raw_text"`
+	// RawText is the complete NOTAM text as the source rendered it, unaltered
+	// (the ICAO rendering when both exist). Always present. RawFormat says
+	// whether it is NOTAM text or, as a last resort, the upstream record.
+	RawText   string    `json:"raw_text"`
+	RawFormat RawFormat `json:"raw_format"`
+	// Translations are every text rendering the source supplied (e.g. the
+	// ICAO and local/domestic formats), unaltered.
+	Translations []Translation `json:"translations,omitempty"`
+
+	// NMSID is the source's stable unique identifier; ID alone (the NOTAM
+	// number) is not unique across locations.
+	NMSID          string `json:"nms_id,omitempty"`
+	Classification string `json:"classification,omitempty"` // DOM, INTL, FDC, MIL
+	// Series is the ICAO NOTAM series letter, when stated.
+	Series      string     `json:"series,omitempty"`
+	IssuedAt    *time.Time `json:"issued_at,omitempty"`
+	LastUpdated *time.Time `json:"last_updated,omitempty"`
 
 	// ParseIssues lists fields that could not be parsed. A record with parse
 	// issues is still returned, never dropped.
 	ParseIssues []string `json:"parse_issues,omitempty"`
+}
+
+// Translation is one text rendering of a NOTAM.
+type Translation struct {
+	Format string `json:"format"` // e.g. "ICAO", "LOCAL_FORMAT"
+	Text   string `json:"text"`
 }
 
 // LatLon is a WGS84 position in signed decimal degrees.
@@ -85,6 +106,9 @@ func (n Notam) Validate() error {
 	}
 	if n.RawText == "" {
 		return fmt.Errorf("notam %s: raw_text is required", n.ID)
+	}
+	if n.RawFormat != RawOfficialText && n.RawFormat != RawUpstreamJSON {
+		return fmt.Errorf("notam %s: invalid raw_format %q", n.ID, n.RawFormat)
 	}
 	if n.EffectiveFrom != nil && n.EffectiveTo != nil && n.EffectiveTo.Before(*n.EffectiveFrom) {
 		return fmt.Errorf("notam %s: effective_to before effective_from", n.ID)
