@@ -1,8 +1,47 @@
 # Hobbs: aviation advisories MCP server — design
 
-Status: draft. Evidence for source behavior is in `docs/SPIKE.md`.
+Status: draft. Evidence for source behavior is in `docs/SPIKE.md`. §0 governs everything else in this document: when a later section appears to conflict with it, §0 wins.
 
-## 1. Core principle: provenance and honesty about data quality
+## 0. Mantra and boundary
+
+> **The MCP layer makes the FAA's data available to the agent. Uniform, consistent, and available.**
+
+- **Uniform:** every source comes out in the same shapes (one envelope, one NOTAM model, one advisory model, one altitude type), so an agent does not learn a new format per source.
+- **Consistent:** the same inputs give the same kind of output, with stable ordering, stable identifiers and the same behavior on errors, gaps and odd data.
+- **Available:** the data is reachable when the sources are, and when it is not (or is stale, partial or from a test environment) the response says so, instead of failing quietly.
+
+This layer is the foundation. The opinionated parts of the application (what matters for a flight, what to do about it) are built **on top of it, in separate layers**, by people and agents who choose their own logic. They are deliberately not here.
+
+### What this layer may do
+
+Low-risk value-adds that make the data easier to consume without deciding anything for the user:
+
+- Simplify and normalize: consistent field names, timestamps in UTC, coordinates in decimal degrees, one altitude representation, unit conversions, merging a source's multiple text renderings under one record.
+- Interpret reasonably where a source is ambiguous or inconsistent (e.g. reading a limit stated as `6000FT AMSL`), **as long as** the original value is kept alongside, the interpretation is documented, and anything we could not interpret is flagged and not guessed.
+- Forward the filters the official API supports, and say that the source applied them.
+- Report on the data itself: where it came from, how old it is, what went wrong getting it.
+
+### What this layer must not do
+
+Anything where there is a decent chance we would miss something, or where logic makes a decision for the user implicitly:
+
+- Decide what is relevant, what applies to a route, a time, an altitude or an aircraft, or what is active now.
+- Rank, score, prioritize, group by importance, summarize or advise.
+- Remove, merge or hide records on the strength of our own judgment (including de-duplicating or "superseding" NOTAMs).
+- Fill gaps with assumptions that change what the data says.
+
+### How to apply it
+
+Before adding any behavior to this layer, ask:
+
+1. **Does it change which records come back, or what a field means, in a way the caller cannot see or undo?** If yes, it does not belong here.
+2. **If our logic is wrong, does the failure show or hide?** Showing (extra data, a flag, a visible parse issue) is acceptable. Hiding (a missing record, a silently changed meaning) is not.
+3. **Is the original preserved next to anything we interpreted?** If not, it must be.
+4. **Is it a decision the user or their agent would want to make themselves?** If yes, it belongs in a higher layer.
+
+When in doubt, return the data as published, flag the doubt, and leave the decision to the layer above.
+
+## 1. Provenance and honesty about data quality
 
 **Every tool response, with no exceptions, states which official sources it used, when each was retrieved, and every problem with the data pull that could affect the result.** This is a hard requirement, not a feature. Users are agents, and agents read absence of evidence as evidence of absence, so the server must make that mistake impossible to make by accident.
 
@@ -85,7 +124,7 @@ Single-maintainer hobby project. Callers are AI agents, not people. US focus; in
 
 The server's job is to make official aviation data **easily available and correct**. Deciding what matters for a particular flight is left to the end user and their agent.
 
-**Rule: we only filter on what the official source itself filters on.** A wrong "this applies" costs some attention; a wrong "this doesn't apply" is a silent omission that could hide the one item that mattered. Any filter we wrote ourselves would turn our bugs into hidden gaps, so we do not write any.
+**Rule (an application of §0): we only filter on what the official source itself filters on.** A wrong "this applies" costs some attention; a wrong "this doesn't apply" is a silent omission that could hide the one item that mattered. Any filter we wrote ourselves would turn our bugs into hidden gaps, so we do not write any.
 
 In scope:
 - Fetching, parsing and normalizing official data into structured form (format, not meaning), with the raw text preserved and the original source fields kept alongside any interpretation.
