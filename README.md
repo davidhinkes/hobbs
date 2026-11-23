@@ -61,6 +61,8 @@ The repo has a `Dockerfile`. On Railway, deploy it from GitHub and set:
 
 The endpoint is open: anyone with the URL can use it, and the global rate limit (`-rate`) is the only guard on upstream quotas.
 
+The repo's `.mcp.json` registers the hosted endpoint (`https://hobbs.up.railway.app/mcp`) as the `hobbs` MCP server, so Claude Code sessions on this repo load its tools at startup and can test the production service end to end. In a cloud session the environment's network policy must allow `hobbs.up.railway.app`.
+
 ## Develop
 
 ```sh
