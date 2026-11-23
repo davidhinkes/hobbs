@@ -60,6 +60,18 @@ The TFR adapter (`internal/source/tfr`) was built and tested against captured fi
 - The TFR adapter cannot be used live from this client until the FAA agrees to it. Ask the FAA (the TFR site is run by the same NOTAM organization) whether and how automated access is permitted.
 - The authorized alternative already in hand is the NMS-API: TFRs are FDC NOTAMs, which NMS serves with structured fields and geometry (e.g. `classification=FDC`). That would need verifying against what the TFR site publishes before relying on it.
 
+### Is there a sanctioned way to pull TFRs? (2026-11-23)
+
+Short answer: there is no documented public TFR API. What the FAA's own materials say:
+
+- **The TFR site is a viewer.** Its documentation ([AboutTFRWebsite.pdf](https://tfr.faa.gov/tfr3/AboutTFRWebsite.pdf)) describes "TFR List in JSON / XML" as a *Download* button for a person, and says: "To verify the latest TFR data, contact NMS (NOTAM Management Service)". It does not offer or address automated access. The site answers our Go client with HTTP 403 (see above).
+- **TFRs are FDC NOTAMs, and NMS is the authority.** A May 2021 FAA SWIM workshop Q&A ([media/19481](https://www.faa.gov/media/19481)): asked whether the NOTAM API "contains the actual geo-spatial data for all TFRs", the NOTAM Team answered "Yes, the geometry data is exactly the same that is available via TFR.faa.gov."
+- **That is not borne out on NMS staging today.** Checked directly (all against staging, 2026-11-23): 41 of the 47 TFRs on the site's list are retrievable from the NMS-API by number (`accountability=FDC&notamNumber=...`); 6 are not (6/9141, 6/8983, 6/8704, 6/8702, 6/7660, 0/0367). For every TFR compared, the NMS GeoJSON geometry is a bare `Point`, with **no Q-line coordinates and no radius**, and none of the TFR site's published outlines (5 to 88 vertices) is present. The AIXM format has the NOTAM event and text but no airspace geometry either. NMS does carry the full NOTAM text, effective dates and classification for them.
+- **Not confirmed:** a SWIM (SCDS) digital-TFR feed. Searches found nothing in FAA documentation; third-party catalogs mention one, unverified. SWIM needs a separate agreement.
+- Commercial and community TFR feeds exist; they are not official sources and are not used.
+
+Consequence: today the authorized route (NMS-API) gives TFR NOTAM text and dates but not outlines; the only place outlines are published is the TFR site, whose automated access is blocked. Deriving an area from the NOTAM text would be exactly the kind of logic §0 rules out. Open questions for the FAA are listed in DESIGN.md §7.
+
 ## FAA TFRs (tfr.faa.gov) — undocumented
 
 - `GET /tfrapi/getTfrList` — 47 TFRs, JSON, `Cache-Control: no-cache`. Fields: `notam_id`, `facility`, `state`, `type`, `description`, `mod_date`, `mod_abs_time`, `is_new`, `gid`. **No geometry, no altitudes, no dates beyond the free-text description.**

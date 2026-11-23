@@ -145,7 +145,7 @@ Consequences: responses can be large, and the failure mode is visible (too much 
 | Need | Source | Access | Status |
 |---|---|---|---|
 | AIRMET (G-AIRMET), SIGMET, intl SIGMET, CWA | NOAA AWC Data API | public, no key | verified in spike |
-| TFRs | FAA `tfr.faa.gov` list + per-TFR XML | public, undocumented; **blocks this Go client with HTTP 403** (see SPIKE.md), so the adapter is built and tested on fixtures but not usable live until the FAA permits automated access | adapter built, live access blocked |
+| TFRs | **No documented API.** Authorized route: NMS-API (TFRs are FDC NOTAMs: text and dates, but on staging only a bare point, no outlines; 41 of 47 present). `tfr.faa.gov` publishes the outlines but blocks this client with HTTP 403 | the TFR adapter is built and tested on fixtures but **dormant** (not wired into any tool) | open: ask the FAA |
 | NOTAMs (US) | FAA NOTAM Management Service API (NMS-API) | credentials by request: the FAA NMS page links "Request API Access" to 7-AWA-NAIMES@faa.gov (program questions: notams@faa.gov); staging access granted and verified (see SPIKE.md); production onboarding pending; ToS allow redistribution but not as "FAA data" |  staging verified |
 
 ## 4. Architecture
@@ -196,7 +196,7 @@ This is translation only. There is no intersection, containment or "does this ap
 There is deliberately no `check_route`. Each tool returns what the official source publishes, shaped consistently, and says who filtered it.
 
 - `get_notams`: forwards the NMS-API's own filters (`location`, `latitude`/`longitude`/`radius_nm` up to 100, effective window, `last_updated`, `classification`, `free_text`, `notam_number`). Returns NOTAMs with raw text in every rendering the source supplied, structured fields and `parse_issues`. The response lists those filters under `applied_by_source`.
-- `get_tfrs`: the full published TFR set (optionally narrowed by exact match on `state`, `facility` or `type`, which the source publishes), each with the FAA's text, dates and altitudes, and geometry only where it is stated plainly. Text-only TFRs are returned with no geometry and a `GEOMETRY_UNAVAILABLE` issue.
+- `get_tfrs` (**not available until the FAA answers the open questions in §7**; see SPIKE.md): the full published TFR set (optionally narrowed by exact match on `state`, `facility` or `type`, which the source publishes), each with the FAA's text, dates and altitudes, and geometry only where it is stated plainly. Text-only TFRs are returned with no geometry and a `GEOMETRY_UNAVAILABLE` issue.
 - `get_weather_advisories`: the full published SIGMET, G-AIRMET, international SIGMET and CWA sets (optionally narrowed by `kind` and `hazard`), with raw text where the source gives it and the original upstream fields alongside our normalized ones.
 - `source_status`: per-source freshness, last success and failure, production versus staging, and endpoint documentation status.
 
@@ -212,6 +212,8 @@ Few tools, structured compact JSON, strict input validation with field-specific 
 - Credentials (NMS client id/secret) only in environment variables.
 
 ## 7. Open items
+
+- **TFRs, questions for the FAA** (ticket INC0036653, 7-AWA-NAIMES@faa.gov): (1) does NMS production publish TFR outlines (the NOTAM Team said in 2021 the geometry matches the TFR site), and if so in which format or filter? (2) why do 6 of the TFR site's 47 TFRs not appear in NMS staging, and will production have them? (3) may the TFR site's JSON/XML export be used programmatically, and if so how (it returns HTTP 403 to automated clients)? (4) is there a SWIM/SCDS digital-TFR service we may use?
 
 - FAA NMS access and hosted-redistribution terms (email 7-AWA-NAIMES@faa.gov per the FAA NMS page, cc notams@faa.gov, as an individual hobby project).
 - AWC documented rate limit and terms of use; FAA terms for `tfr.faa.gov` programmatic use.
