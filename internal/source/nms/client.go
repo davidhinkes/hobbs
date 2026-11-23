@@ -417,11 +417,11 @@ func (c *Client) build(snap *source.Snapshot[model.Notam], feats []json.RawMessa
 	add(provenance.ParseFailed, provenance.Warning, parseFail,
 		fmt.Sprintf("%d NOTAM(s) had fields that could not be parsed; they are included, flagged in parse_issues", len(parseFail)))
 	add(provenance.GeometryUnavailable, provenance.Warning, noGeom,
-		fmt.Sprintf("%d NOTAM(s) have no usable geometry and cannot be checked spatially", len(noGeom)))
+		fmt.Sprintf("%d NOTAM(s) have no usable geometry as published", len(noGeom)))
 	add(provenance.ScheduleUnevaluable, provenance.Warning, sched,
-		fmt.Sprintf("%d NOTAM(s) have a schedule that is not evaluated; they may be active at any time in their effective period", len(sched)))
+		fmt.Sprintf("%d NOTAM(s) carry a schedule that the server does not interpret; see the schedule field", len(sched)))
 	add(provenance.AltitudeUnknown, provenance.Info, noAlt,
-		fmt.Sprintf("%d NOTAM(s) state no vertical limits; treat as possibly applying at any altitude", len(noAlt)))
+		fmt.Sprintf("%d NOTAM(s) state no vertical limits", len(noAlt)))
 	if !c.cfg.Production {
 		snap.Issues = append(snap.Issues, provenance.Issue{
 			Code: provenance.NonProductionSource, Severity: provenance.Warning, Source: SourceID,

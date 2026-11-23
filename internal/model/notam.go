@@ -29,9 +29,8 @@ type Notam struct {
 	EffectiveTo   *time.Time `json:"effective_to,omitempty"`
 	Permanent     bool       `json:"permanent,omitempty"`
 	Estimated     bool       `json:"estimated,omitempty"` // end time marked EST
-	// Schedule is item D (daily/periodic activity) as stated. It is not parsed
-	// here; a non-empty value means "active now" cannot be decided from
-	// EffectiveFrom/EffectiveTo alone.
+	// Schedule is item D (daily/periodic activity) exactly as stated. The
+	// server does not interpret it.
 	Schedule string `json:"schedule,omitempty"`
 
 	Lower Altitude `json:"lower"`
@@ -122,23 +121,4 @@ func (n Notam) Validate() error {
 		}
 	}
 	return nil
-}
-
-// ActiveAt reports whether the NOTAM is within its effective period at t,
-// using a half-open interval [from, to). The second result is false when
-// the answer cannot be determined from the effective period alone (no start
-// time, or a non-empty Schedule), in which case callers must treat the NOTAM
-// as possibly active and flag it.
-func (n Notam) ActiveAt(t time.Time) (active bool, determinate bool) {
-	if n.EffectiveFrom == nil || n.Schedule != "" {
-		return true, false
-	}
-	if t.Before(*n.EffectiveFrom) {
-		return false, true
-	}
-	if n.Permanent || n.EffectiveTo == nil {
-		// Open-ended: active, but an unstated end is only determinate if permanent.
-		return true, n.Permanent
-	}
-	return t.Before(*n.EffectiveTo), true
 }

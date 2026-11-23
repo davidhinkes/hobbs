@@ -102,13 +102,3 @@ func (a Advisory) Validate() error {
 	}
 	return nil
 }
-
-// ActiveAt reports whether the advisory is within its validity window at t
-// ([from, to) half-open). The second result is false when the window is
-// missing a bound, in which case callers must treat it as possibly active.
-func (a Advisory) ActiveAt(t time.Time) (active bool, determinate bool) {
-	if a.ValidFrom == nil || a.ValidTo == nil {
-		return true, false
-	}
-	return !t.Before(*a.ValidFrom) && t.Before(*a.ValidTo), true
-}

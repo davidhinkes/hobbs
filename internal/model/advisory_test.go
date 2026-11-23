@@ -55,19 +55,3 @@ func TestAdvisoryValidate(t *testing.T) {
 		})
 	}
 }
-
-func TestAdvisoryActiveAt(t *testing.T) {
-	a := validAdvisory()
-	for _, tt := range []struct {
-		at     time.Time
-		active bool
-	}{{t0.Add(-time.Second), false}, {t0, true}, {t1.Add(-time.Second), true}, {t1, false}} {
-		if got, det := a.ActiveAt(tt.at); got != tt.active || !det {
-			t.Errorf("ActiveAt(%v) = (%v,%v), want (%v,true)", tt.at, got, det, tt.active)
-		}
-	}
-	a.ValidTo = nil
-	if got, det := a.ActiveAt(t0); !got || det {
-		t.Errorf("missing bound must be possibly active, not determinate: (%v,%v)", got, det)
-	}
-}

@@ -71,32 +71,3 @@ func TestNotamValidate(t *testing.T) {
 		})
 	}
 }
-
-func TestActiveAt(t *testing.T) {
-	tests := []struct {
-		name       string
-		mut        func(*Notam)
-		at         time.Time
-		wantActive bool
-		wantDet    bool
-	}{
-		{"inside window", func(*Notam) {}, t0.Add(time.Hour), true, true},
-		{"start is inclusive", func(*Notam) {}, t0, true, true},
-		{"end is exclusive", func(*Notam) {}, t1, false, true},
-		{"before start", func(*Notam) {}, t0.Add(-time.Second), false, true},
-		{"permanent", func(n *Notam) { n.EffectiveTo = nil; n.Permanent = true }, t1.Add(1000 * time.Hour), true, true},
-		{"open-ended unstated end", func(n *Notam) { n.EffectiveTo = nil }, t1, true, false},
-		{"no start time", func(n *Notam) { n.EffectiveFrom = nil }, t0, true, false},
-		{"scheduled", func(n *Notam) { n.Schedule = "DAILY 1200-2300" }, t0.Add(-time.Hour), true, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			n := valid()
-			tt.mut(&n)
-			a, d := n.ActiveAt(tt.at)
-			if a != tt.wantActive || d != tt.wantDet {
-				t.Errorf("ActiveAt = (%v,%v), want (%v,%v)", a, d, tt.wantActive, tt.wantDet)
-			}
-		})
-	}
-}

@@ -226,11 +226,11 @@ func (f *feed) Fetch(ctx context.Context) (source.Snapshot[model.Advisory], erro
 	add(provenance.ParseFailed, provenance.Warning, parseFail,
 		fmt.Sprintf("%d record(s) had fields that could not be parsed; they are included, flagged in parse_issues", len(parseFail)))
 	add(provenance.GeometryUnavailable, provenance.Warning, noGeom,
-		fmt.Sprintf("%d record(s) have no usable geometry and cannot be checked spatially", len(noGeom)))
+		fmt.Sprintf("%d record(s) have no usable geometry as published", len(noGeom)))
 	add(provenance.GeometryNotArea, provenance.Info, lines,
-		fmt.Sprintf("%d record(s) are lines, not areas (e.g. freezing-level contours); they have no inside to intersect", len(lines)))
+		fmt.Sprintf("%d record(s) are lines, not areas (e.g. freezing-level contours)", len(lines)))
 	add(provenance.AltitudeUnknown, provenance.Info, noAlt,
-		fmt.Sprintf("%d record(s) state no vertical limits; treat as possibly applying at any altitude", len(noAlt)))
+		fmt.Sprintf("%d record(s) state no vertical limits", len(noAlt)))
 	snap.Issues = append(snap.Issues, provenance.Issue{
 		Code: provenance.AltitudeAssumed, Severity: provenance.Info, Source: f.id,
 		Message: "AWC states altitudes without a datum; interpreted as feet, shown as flight levels at or above 18,000 ft",

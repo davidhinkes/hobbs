@@ -153,9 +153,6 @@ func TestSampleRecordSemantics(t *testing.T) {
 	if !perm.Permanent || perm.EffectiveTo != nil || perm.EffectiveFrom == nil {
 		t.Errorf("PERM: %+v", perm)
 	}
-	if a, det := perm.ActiveAt(fixedNow); !a || !det {
-		t.Errorf("permanent NOTAM past its start should be active and determinate: %v %v", a, det)
-	}
 
 	if cancel := byNumber(t, it, "A6032/26"); cancel.Type != "C" {
 		t.Errorf("type = %q", cancel.Type)
@@ -189,13 +186,13 @@ func TestSampleRecordSemantics(t *testing.T) {
 		t.Errorf("no stated limits must stay unknown: %+v %+v", none.Lower, none.Upper)
 	}
 
-	// Schedules make activity indeterminate.
+	// Schedules are passed through as published and flagged; the server does not interpret them.
 	sch := byNumber(t, it, "10/640")
 	if sch.Schedule == "" {
 		t.Fatal("schedule lost")
 	}
-	if a, det := sch.ActiveAt(fixedNow); !a || det {
-		t.Errorf("scheduled NOTAM must be possibly active, not determinate: %v %v", a, det)
+	if sch.EffectiveFrom == nil || sch.EffectiveTo == nil {
+		t.Errorf("a scheduled NOTAM keeps its effective period as published: %+v", sch)
 	}
 	if issue(snap.Issues, provenance.ScheduleUnevaluable) == nil {
 		t.Error("expected SCHEDULE_UNEVALUABLE")

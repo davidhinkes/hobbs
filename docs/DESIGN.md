@@ -64,18 +64,18 @@ Rules that follow:
 | `STALE_DATA` | Served from cache older than the source's freshness policy; age reported |
 | `UPSTREAM_ERROR` | Non-2xx, malformed body, or timeout (used with a cache fallback) |
 | `PARSE_FAILED` | A record could not be parsed; raw text retained, record flagged, not dropped |
-| `GEOMETRY_UNAVAILABLE` | Record has no spatial extent (e.g. text-only security TFRs); cannot be route-checked |
+| `GEOMETRY_UNAVAILABLE` | Record has no spatial extent as published (e.g. text-only security TFRs); returned without geometry |
 | `GEOMETRY_PARTIAL` | Some shapes unresolved (e.g. navaid-relative vertices) |
-| `GEOMETRY_NOT_AREA` | Line feature (e.g. freezing level); informational, not intersected |
-| `ALTITUDE_UNKNOWN` | Missing/ambiguous vertical limits or datum; treated conservatively |
-| `SCHEDULE_UNEVALUABLE` | TFR schedule could not be evaluated for the requested time |
-| `UPSTREAM_FILTER_IGNORED` | Upstream ignores a parameter; we filtered locally (info) |
+| `GEOMETRY_NOT_AREA` | Line feature (e.g. freezing level); a line has no inside |
+| `ALTITUDE_UNKNOWN` | Missing or ambiguous vertical limits or datum; reported as unknown, never assumed |
+| `SCHEDULE_UNEVALUABLE` | Record carries a schedule the server does not interpret; read it from the record |
+| `UPSTREAM_FILTER_IGNORED` | Upstream ignores a filter; we do not substitute our own, the full published set is returned (info) |
 | `UNDOCUMENTED_SOURCE` | Endpoint is not a documented, supported API (info) |
 | `RESULT_TRUNCATED` | Output limited; count of omitted items given |
 | `SOURCE_NOT_ENABLED` | Source configured off (e.g. NOTAMs pending FAA access) |
 | `CLOCK_SKEW` | Upstream timestamps inconsistent with our clock |
 
-Conservative defaults: unknown altitude means "may apply at any altitude"; an unevaluable schedule means "may be active". Both are flagged.
+We make no assumptions about applicability: unknown stays unknown, and the server never decides whether something applies to a flight. See the scope rule in §2.
 
 ## 2. Users and scope
 
@@ -85,17 +85,21 @@ Single-maintainer hobby project. Callers are AI agents, not people. US focus; in
 
 The server's job is to make official aviation data **easily available and correct**. Deciding what matters for a particular flight is left to the end user and their agent.
 
+**Rule: we only filter on what the official source itself filters on.** A wrong "this applies" costs some attention; a wrong "this doesn't apply" is a silent omission that could hide the one item that mattered. Any filter we wrote ourselves would turn our bugs into hidden gaps, so we do not write any.
+
 In scope:
-- Fetching, parsing and normalizing official data into structured, queryable form, with raw text preserved.
-- Objective, deterministic queries: by location, area, route corridor, altitude, and time (active/effective at T). These are filters on stated facts (does this polygon intersect this corridor, is this window active at this time), not judgments of importance.
+- Fetching, parsing and normalizing official data into structured form (format, not meaning), with the raw text preserved and the original source fields kept alongside any interpretation.
+- Forwarding the filters an official API supports (e.g. the NMS-API's location, point-and-radius, effective-time and classification filters) and **saying in the response that the source applied them**. The filtering is the FAA's, not ours.
+- Where the source offers no filter (AWC and the TFR feed give no usable area filter), returning the full published set, optionally narrowed only by exact match on a field the source itself publishes (e.g. a TFR's state, or an advisory's hazard).
 - Being honest about gaps (§1).
 
 Non-goals:
 - Relevance scoring, ranking, prioritizing, summarizing or "you should care about this" guidance.
-- Suppressing or hiding records because they seem unimportant. Within a query's objective filters, everything matching is returned.
+- Our own route, corridor or area intersection, "active at time T" decisions, altitude-overlap matching, or any label such as "applies", "possibly applies" or "does not apply". Agents that want this do it themselves from the geometry and fields we return.
+- Suppressing records. Nothing is dropped; there is no default result cap.
 - Flight-planning decisions or go/no-go advice.
 
-Consequences: results are complete within the query, in a stable and documented order (e.g. by effective time), and carry source IDs, raw text and structured fields so a downstream agent can do its own reasoning. Where we cannot evaluate a record against a filter (no geometry, unknown altitude or schedule), it is **included and flagged**, not excluded.
+Consequences: responses can be large, and the failure mode is visible (too much data) instead of hidden (a missing item). Every response states which filters the source applied and which, if any, we applied (`filters.applied_by_source`, `filters.applied_by_server`), so a caller can see exactly who narrowed the result.
 
 ## 3. Sources
 
@@ -107,11 +111,11 @@ Consequences: results are complete within the query, in a stable and documented 
 
 ## 4. Architecture
 
-- **Go**, official MCP Go SDK (verify Streamable HTTP support), stdlib `net/http`, `paulmach/orb` for geometry, `log/slog`. Stdio for dev, Streamable HTTP for hosting.
+- **Go**, official MCP Go SDK (verify Streamable HTTP support), stdlib `net/http`, `log/slog`. Stdio for dev, Streamable HTTP for hosting.
 - **Pollers, not pass-through.** One background poller per source on its `Cache-Control` cadence (AWC 60–180 s), with jitter and `singleflight`. Tool calls read the cache, so upstream load is constant regardless of callers.
 - **Snapshots carry provenance** (retrieved_at, upstream timestamp, ETag, hash, HTTP status, issues). The cache keeps the last good snapshot plus the most recent failure, so a failed fetch degrades to a flagged stale result.
 - **TFR adapter:** poll `getTfrList`; fetch `detail_<id>.xml` only for new or changed IDs (`mod_abs_time`); parse into normalized records; keep raw XML.
-- **Fetch whole feeds, filter locally.** Upstream filters are unreliable (spike).
+- **Fetch whole feeds.** Upstream filters are unreliable (spike), and we do not replace them with our own. Only filters the source supports are forwarded (NMS-API); otherwise the full published set is returned.
 - **Snapshot file on disk** so a restart does not begin with an empty cache; restored data keeps its original `retrieved_at`.
 
 ```
@@ -121,21 +125,22 @@ internal/source/tfr/   FAA TFR adapter
 internal/source/nms/   NOTAM adapter (feature-flagged)
 internal/model/        Advisory, Notam, Altitude, Geometry
 internal/provenance/   Envelope, Source record, Issue codes, completeness rules
-internal/geo/          intersection, corridor, altitude overlap (geodesic)
 internal/cache/        snapshots, stale-while-error
 internal/mcpserver/    tools, input validation, response shaping
 ```
 
-Altitude is its own type: value, unit, datum (MSL/AGL/FL/SFC/UNL), and a nullable "unknown". Time is UTC `time.Time` with half-open intervals and an injectable clock.
+Altitude is its own type: value, datum (MSL/AGL/FL/SFC/UNL), and an explicit "unknown" that is never zero. Time is UTC `time.Time` with an injectable clock. The server holds no logic that decides whether something is active or applicable.
 
 ## 5. Tools (v1)
 
-- `check_route(waypoints, altitude, departure_time)`: the main entry point. Intersects route/corridor with TFRs, SIGMETs, G-AIRMETs and CWAs; lists text-only TFRs it could not evaluate.
-- `get_tfrs`, `get_airsigmets`: lower-level reads by area/point/time.
-- `get_notams`: US NOTAMs, behind a feature flag until FAA terms allow it.
-- `source_status`: per-source freshness, last success/failure, endpoint documentation status.
+There is deliberately no `check_route`. Each tool returns what the official source publishes, shaped consistently, and says who filtered it.
 
-Few tools, structured compact JSON, strict input validation with field-specific errors, pagination with explicit truncation.
+- `get_notams`: forwards the NMS-API's own filters (`location`, `latitude`/`longitude`/`radius_nm` up to 100, effective window, `last_updated`, `classification`, `free_text`, `notam_number`). Returns NOTAMs with raw text in every rendering the source supplied, structured fields and `parse_issues`. The response lists those filters under `applied_by_source`.
+- `get_tfrs`: the full published TFR set (optionally narrowed by exact match on `state`, `facility` or `type`, which the source publishes), each with the FAA's text, dates and altitudes, and geometry only where it is stated plainly. Text-only TFRs are returned with no geometry and a `GEOMETRY_UNAVAILABLE` issue.
+- `get_weather_advisories`: the full published SIGMET, G-AIRMET, international SIGMET and CWA sets (optionally narrowed by `kind` and `hazard`), with raw text where the source gives it and the original upstream fields alongside our normalized ones.
+- `source_status`: per-source freshness, last success and failure, production versus staging, and endpoint documentation status.
+
+Few tools, structured compact JSON, strict input validation with field-specific errors. Any caller-chosen `limit` is explicit and reports how many items were omitted; there is no default cap.
 
 ## 6. Safety and trust
 
@@ -150,6 +155,6 @@ Few tools, structured compact JSON, strict input validation with field-specific 
 
 - FAA NMS access and hosted-redistribution terms (email 7-AWA-NAIMES@faa.gov per the FAA NMS page, cc notams@faa.gov, as an individual hobby project).
 - AWC documented rate limit and terms of use; FAA terms for `tfr.faa.gov` programmatic use.
-- Navaid dataset for `Frd` vertices, or flag those TFRs `GEOMETRY_PARTIAL`.
+- TFR geometry: parse only what is stated plainly; navaid-relative (`Frd`) vertices stay unresolved and flagged `GEOMETRY_PARTIAL`.
 - `Add`/`Replace`/`Delete` semantics in TFR XML updates.
 - Hosting target (Railway vs. cheap VPS).
