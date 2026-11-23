@@ -1,0 +1,15 @@
+# Secrets and local config: never commit
+.env
+.env.*
+*.secret
+*.key
+secrets/
+credentials*
+*.xlsx
+*.docx
+
+# Go
+/bin/
+*.test
+*.out
+/hobbs
