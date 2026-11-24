@@ -1,6 +1,6 @@
 # One tool for a flight: `get_flight_briefing_data` (design)
 
-Date: 2026-11-24. Status: proposed, awaiting the maintainer's approval. It replaces an earlier proposal for a separate `get_weather_metar_taf` tool (same date, withdrawn by the maintainer: METARs and TAFs go into this single interface instead). Once built, the parts that last move into `docs/DESIGN.md` (§1, §3, §4, §5, §6, §8, §9), `README.md` and `CLAUDE.md`, as `CLAUDE.md` requires, and this file is deleted or marked superseded.
+Date: 2026-11-24. Status: **approved by the maintainer, 2026-11-24**; the time window was then dropped (§6), also by the maintainer. It replaces an earlier proposal for a separate `get_weather_metar_taf` tool (same date, withdrawn by the maintainer: METARs and TAFs go into this single interface instead). Once built, the parts that last move into `docs/DESIGN.md` (§1, §3, §4, §5, §6, §8, §9), `README.md` and `CLAUDE.md`, as `CLAUDE.md` requires, and this file is deleted or marked superseded.
 
 ## 1. Intent
 
@@ -14,7 +14,7 @@ The maintainer accepts that translating one input into several source queries is
 
 **Goals**
 
-- `get_flight_briefing_data`: airports (ICAO), optional extra en-route centers, an optional time window, and a choice of what to include. One envelope, a sublist per kind.
+- `get_flight_briefing_data`: airports (ICAO), optional extra en-route centers, and a choice of what to include. No time window (§6). One envelope, a sublist per kind.
 - METARs and TAFs from NOAA AWC, new to hobbs.
 - The tool **replaces** `get_notams` and `get_weather_advisories` (maintainer's decision, 2026-11-24). `source_status` stays (it is diagnostics, not data; the builder's call).
 
@@ -28,8 +28,8 @@ The maintainer accepts that translating one input into several source queries is
 **Anti-goals (a failure even if it works)**
 
 - Any relevance, "applies", "in effect now" or flight-category logic of our own.
-- An input, or part of one, that a source cannot use and that disappears without a flag (a 3-letter identifier AWC does not match, an airport with no METAR, a time window a source cannot apply).
-- A time window that hides NOTAMs the caller would need, without saying so.
+- An input, or part of one, that a source cannot use and that disappears without a flag (a 3-letter identifier AWC does not match, an airport with no METAR).
+- A time filter that hides NOTAMs the caller would need (the reason the window was dropped, §6).
 
 ## 3. Constraints
 
@@ -62,7 +62,7 @@ The maintainer accepts that translating one input into several source queries is
 |---|---|---|
 | How a flight is described | A list of airports | Bounding box: deferred; a station with no report cannot be flagged when there is no expected list |
 | Identifier form | ICAO only | FAA 3-letter ids looked up in FAA NASR: correct, but a new data source to keep current. Adding a `K` ourselves: wrong in Alaska, Hawaii and the territories, and silent |
-| Time | Optional `start_time` + `duration` | No time (every current NOTAM; visible over-inclusion): kept as the default when both are omitted |
+| Time | **None** (dropped after the §6 probe) | Optional `start_time` + `duration` sent to the FAA (approved first): the FAA returns only NOTAMs entirely inside the window, so it hides NOTAMs in effect during the flight. Keeping the fields but applying them nowhere: a field that does nothing invites agents to think results were filtered. Our own overlap filter on published start and end times: server-side removal §2 rules out, and wrong on daily schedules, estimated ends and NOTAMs with no end |
 | Name | `get_flight_briefing_data` (the builder's proposal, not objected to) | `get_weather`: reads as "all weather" next to the advisories tool, now moot |
 
 ### 4.4 What the replaced tools offered, and where it goes
@@ -70,7 +70,7 @@ The maintainer accepts that translating one input into several source queries is
 | Old capability | In the new tool |
 |---|---|
 | `get_notams` `locations` (airports and centers), `add_centers` | `airports` and `centers`; implied centers always added (§5.3) |
-| `effective_start` / `effective_end` | `start_time` / `duration` (§5.3) |
+| `effective_start` / `effective_end` | dropped: the FAA's window is containment, not overlap (§6) |
 | `latitude` / `longitude` / `radius_nm`, `notam_number`, `free_text`, `feature`, `classification`, `accountability`, `last_updated` | dropped |
 | `get_weather_advisories` `kinds` | `include` (§5.1) |
 | `hazard` | dropped |
@@ -85,8 +85,6 @@ The maintainer accepts that translating one input into several source queries is
 {
   "airports": ["KSMO", "KSNA"],             // required, 1 to 10 ICAO identifiers
   "centers": ["ZAB"],                        // optional: en-route centers the flight also crosses
-  "start_time": "2026-11-26T14:00:00Z",      // optional, with duration
-  "duration": "3h",                          // optional, with start_time
   "include": ["notams", "metars", "tafs", "sigmets", "airmets", "intl_sigmets", "cwas"], // default: all
   "include_geometry": false                  // optional, default false
 }
@@ -94,7 +92,6 @@ The maintainer accepts that translating one input into several source queries is
 
 - **`airports`**: exactly four letters or digits each, case-insensitive, returned upper case; duplicates removed. A 3-letter id (`SMO`) is an input error naming the ICAO form to use. AWC selectors such as `@CA` are rejected. At most 10, as `get_notams` today.
 - **`centers`** (the builder's call, flagged for the maintainer): ARTCC identifiers (`ZAB`, or `KZAB`; the two count as the same, as today). Used for NOTAMs only. Without it, a flight that crosses a center its airports' NOTAMs do not list would lose that center's NOTAMs, which `get_notams` lets a caller add today (`docs/DESIGN.md` §3.2 F1 step 4). The response says centers between the airports are never inferred (the existing `locations.note`).
-- **`start_time`** is a full RFC 3339 UTC timestamp. A bare time (`14:00Z`) is an input error: today or tomorrow would be a guess. **`duration`** is a positive Go-style duration in hours and minutes (`3h`, `90m`, `1h30m`), at most 72h (the builder's call, to be checked against the FAA's limits). Both or neither.
 - **`include`** chooses sublists; the default is all seven. METARs and TAFs are separate entries so a caller can ask for one. The advisory kinds map to the existing feeds (SIGMET, AIRMET, INTL_SIGMET, CWA).
 - **`include_geometry`** defaults to **false** in this tool, unlike the old tools (the builder's call): a KSMO/KSAN briefing with geometry would be roughly 300 KB of JSON, about twice that on the wire. The response lists `geometry` under `omitted_fields`, so the omission is visible.
 
@@ -128,18 +125,18 @@ One envelope covers everything: each upstream request is its own provenance sour
 
 The translation is a pure function from the validated input to a list of source queries, and it is returned in the response (`translation`), one entry per source:
 
-| Source | What it is asked | Time window | Not used / flagged |
-|---|---|---|---|
-| FAA NMS NOTAMs | `location` = each airport, each `centers` entry, then each implied center the FAA lists on those NOTAMs (one round, as `get_notams` today) | `effectiveStartDate` / `effectiveEndDate` = start, start + duration, applied by the FAA, **if the probe in §6 passes** | — |
-| AWC METAR | `ids` = the airports | not applied: latest METAR per station | each airport with no METAR: `STATION_NO_DATA` |
-| AWC TAF | `ids` = the airports | not applied: latest TAF, every period as published | each airport with no TAF: `STATION_NO_DATA` |
-| AWC advisories (four feeds) | the full current set, as today | not applied | not filtered by airport: said in `translation` |
-| (centers) | NOTAMs only | | `translation` says METAR/TAF were not asked for centers |
+| Source | What it is asked | Not used / flagged |
+|---|---|---|
+| FAA NMS NOTAMs | `location` = each airport, each `centers` entry, then each implied center the FAA lists on those NOTAMs (one round, as `get_notams` today); no other filter | — |
+| AWC METAR | `ids` = the airports; latest METAR per station | each airport with no METAR: `STATION_NO_DATA` |
+| AWC TAF | `ids` = the airports; latest TAF, every period as published | each airport with no TAF: `STATION_NO_DATA` |
+| AWC advisories (four feeds) | the full current set, as today | not filtered by airport: said in `translation` |
+| (centers) | NOTAMs only | `translation` says METAR/TAF were not asked for centers |
 
 Rules the translation keeps (and the tests check):
 
 1. **Shown.** Every source query appears in `translation` with the parameters actually sent, who applies each filter (`applied_by_source`; `applied_by_server` stays empty), and which parts of the input it did not use.
-2. **Nothing dropped quietly.** Anything a source cannot take gets an issue (`STATION_NO_DATA`; `TIME_WINDOW_NOT_APPLIED`, info, for each source the window was not sent to).
+2. **Nothing dropped quietly.** Anything a source cannot take gets an issue (`STATION_NO_DATA`).
 3. **Nothing inferred.** No places, times or identifiers the caller did not give; the one addition, the implied center, uses only the FAA's own association, as today.
 
 ### 5.4 METARs and TAFs: the station report
@@ -161,23 +158,22 @@ Converting units or normalizing cloud layers into our own fields was considered 
 | Code | Meaning |
 |---|---|
 | `STATION_NO_DATA` | A requested airport returned no METAR (or no TAF). AWC answers the same way for "no current report", "no TAF published here" and "unknown station", so it is not a "none" (warning) |
-| `TIME_WINDOW_NOT_APPLIED` | A time window was given but this source was not filtered by it; its records are current, not for the window (info) |
 
 ### 5.6 `source_status`
 
 Stays, and adds `awc.metar` and `awc.taf` checks (one well-known station each).
 
-## 6. Must be verified before the time window is used
+## 6. The time window: probed, then dropped
 
-The FAA's effective-window filter on staging, probed and recorded in `docs/DESIGN.md` §5.5 before the window is sent:
+The approved design sent an optional window to the FAA only if its effective-window filter on staging passed these tests:
 
 - Does it return NOTAMs that **overlap** the window (start before it, end after it)?
 - Does it return **permanent** NOTAMs (`PERM`) and NOTAMs with an **estimated** end (`EST`)?
 - Its maximum window, if any.
 
-If it returns only NOTAMs entirely inside the window, or drops PERM or EST NOTAMs, it would hide NOTAMs that matter. Then the window is **not** sent to the FAA: `translation` and a `TIME_WINDOW_NOT_APPLIED` issue say so, and every current NOTAM is returned. That fallback is a visible over-inclusion, which §2 accepts.
+If it returns only NOTAMs entirely inside the window, or drops PERM or EST NOTAMs, it would hide NOTAMs that matter. The fallback was to not send it, and say so.
 
-**Probe result (2026-11-24, FAA staging, through the hosted `get_notams`, KSNA, which had 20 NOTAMs unfiltered):** the FAA returns only NOTAMs **entirely inside** the window. A 3-hour window on 2026-11-26 returned 0, as did 3-hour windows on 2026-11-23 and 2026-11-24 that contained "now", although 17 of the 20 were in effect throughout. A window of 2026-11-20 to 2026-11-30 returned only the 2 NOTAMs that start and end inside it (11/030, A1533/26), not 11/035, which starts on 11-21 and ends on 12-02. A window of 2025-01-01 to 2028-12-31 returned 19: every NOTAM except 10/054, which has no end time. So the window fails both tests above, and **the window is not sent to the FAA**.
+**Probe result (2026-11-24, FAA staging, through the hosted `get_notams`, KSNA, which had 20 NOTAMs unfiltered):** the FAA returns only NOTAMs **entirely inside** the window. A 3-hour window on 2026-11-26 returned 0, as did 3-hour windows on 2026-11-23 and 2026-11-24 that contained "now", although 17 of the 20 were in effect throughout. A window of 2026-11-20 to 2026-11-30 returned only the 2 NOTAMs that start and end inside it (11/030, A1533/26), not 11/035, which starts on 11-21 and ends on 12-02. A window of 2025-01-01 to 2028-12-31 returned 19: every NOTAM except 10/054, which has no end time. So the window fails both tests. With it not sent to the FAA, no source would use it (METARs, TAFs and advisories are not filtered by time), so **the maintainer dropped the time window from the input** (2026-11-24). This finding goes into `docs/DESIGN.md` §5.5, and the decision into §9, so the window is not re-tried unknowingly.
 
 ## 7. What AWC was observed to do (probed live, 2026-11-24)
 
@@ -193,9 +189,9 @@ These go into `docs/DESIGN.md` §5.5 with the build.
 ## 8. What else changes
 
 - **Removed:** `get_notams` and `get_weather_advisories`, their tests and descriptions. A breaking change for any client that calls them (the `.mcp.json` session tools, anything external). Record it in `docs/DESIGN.md` §9 with the alternatives in §4.2.
-- **`docs/DESIGN.md`:** §1 status; §3.2 flows (F1 and F3 become one flight flow; F2, NOTAMs around a point, is removed); §3.4 non-goals (bbox deferred, narrower queries dropped); §4 diagram and request walk-through; §5.1 (`raw_format` values, new issue codes); §5.2 (the tool); §5.3 (the station report); §5.5 (§6 and §7 findings); §5.7 code layout; §6 tests; §8 open items (bbox, the narrower queries if ever wanted again); §9 entries: one tool replacing the data tools, ICAO-only input, the time window, METAR/TAF from AWC, `include_geometry` default false here, `limit` dropped.
+- **`docs/DESIGN.md`:** §1 status; §3.2 flows (F1 and F3 become one flight flow; F2, NOTAMs around a point, is removed); §3.4 non-goals (bbox deferred, narrower queries dropped); §4 diagram and request walk-through; §5.1 (`raw_format` values, new issue codes); §5.2 (the tool); §5.3 (the station report); §5.5 (§6 and §7 findings); §5.7 code layout; §6 tests; §8 open items (bbox, the narrower queries if ever wanted again); §9 entries: one tool replacing the data tools, ICAO-only input, no time window (§6), METAR/TAF from AWC, `include_geometry` default false here, `limit` dropped.
 - **`README.md`:** the tools. **`CLAUDE.md`:** the end-to-end test tools (`mcp__hobbs__get_flight_briefing_data`, `mcp__hobbs__source_status`).
-- **Tests:** offline fixtures for METAR, SPECI, TAF, the 204 and `[]` empties, a missing station, a malformed record; table tests for the translation (input to source queries, including centers, the window and its fallback); the envelope test over the new tool; a `live` integration test; end-to-end through the hosted server after deploy.
+- **Tests:** offline fixtures for METAR, SPECI, TAF, the 204 and `[]` empties, a missing station, a malformed record; table tests for the translation (input to source queries, including centers); the envelope test over the new tool; a `live` integration test; end-to-end through the hosted server after deploy.
 
 ## 9. Left to the builder
 
