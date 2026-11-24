@@ -38,10 +38,13 @@ type briefingRequest struct {
 }
 
 // translationEntry is what one source was asked: the filters sent, which the
-// source applied, and which parts of the input it did not use.
+// source applied (applied_by_source) and which the server applied
+// (applied_by_server: always {}, because this tool applies no filter of its
+// own), and which parts of the input it did not use.
 type translationEntry struct {
 	Source          string            `json:"source"`
 	AppliedBySource map[string]string `json:"applied_by_source"`
+	AppliedByServer map[string]string `json:"applied_by_server"`
 	NotUsed         []string          `json:"not_used"`
 }
 
@@ -180,6 +183,9 @@ func translate(req briefingRequest) []translationEntry {
 		default:
 			out = append(out, translationEntry{Source: advisoryInclude[inc].id, AppliedBySource: map[string]string{}, NotUsed: []string{"airports", "centers"}})
 		}
+	}
+	for i := range out {
+		out[i].AppliedByServer = map[string]string{}
 	}
 	return out
 }

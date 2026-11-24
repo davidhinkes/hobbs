@@ -60,10 +60,10 @@ func (c *Client) fetchStations(ctx context.Context, id, path string, kind model.
 	for i, raw := range recs {
 		r, n := parse(id, raw)
 		if r.Station == "" {
-			if len(n.Issues) == 0 {
-				n.Add("record has no station identifier")
-			}
-			r = model.StationReport{ID: fmt.Sprintf("%s#%d", id, i), Kind: kind, Source: id}
+			// A stub: keep what was parsed (its text included), and identify it
+			// by its position in the answer.
+			n.Add("record has no station identifier")
+			r.ID, r.Kind, r.Source = fmt.Sprintf("%s#%d", id, i), kind, id
 			r.Station = r.ID
 		} else {
 			have[strings.ToUpper(r.Station)] = true

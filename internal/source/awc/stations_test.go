@@ -222,3 +222,34 @@ func TestStationFailuresAreErrors(t *testing.T) {
 		})
 	}
 }
+
+// A record with published text but no icaoId is a flagged stub that keeps the
+// text it carried, and is not noted as missing text.
+func TestStationRecordWithoutStationKeepsText(t *testing.T) {
+	body := []byte(`[{"obsTime":1795499580,"metarType":"METAR","rawOb":"METAR KSNA 240553Z"}]`)
+	snap, err := serve(t, 200, body).METARs(context.Background(), []string{"KSNA"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Items) != 1 {
+		t.Fatalf("items = %d", len(snap.Items))
+	}
+	r := snap.Items[0]
+	if r.ID != "awc.metar#0" || r.Station != r.ID || r.Kind != model.KindMETAR || r.Source != "awc.metar" {
+		t.Errorf("stub = %+v", r)
+	}
+	if r.RawText != "METAR KSNA 240553Z" || r.RawFormat != model.RawMETAR {
+		t.Errorf("raw text/format = %q/%q", r.RawText, r.RawFormat)
+	}
+	if len(r.SourceRecord) == 0 {
+		t.Error("no source_record")
+	}
+	notes := strings.Join(r.ParseIssues, "; ")
+	if !strings.Contains(notes, "no station identifier") || strings.Contains(notes, "official text missing") {
+		t.Errorf("parse issues = %q", notes)
+	}
+	pf := stationIssue(snap, provenance.ParseFailed)
+	if pf == nil || len(pf.Refs) != 1 || pf.Refs[0] != r.ID {
+		t.Errorf("PARSE_FAILED = %+v", pf)
+	}
+}

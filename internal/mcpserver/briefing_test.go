@@ -72,13 +72,13 @@ func TestTranslateIsShownPerSource(t *testing.T) {
 	})
 	place := []string{"airports", "centers"}
 	want := []translationEntry{
-		{Source: "faa.nms.notam", AppliedBySource: map[string]string{"location": "KSMO,KSNA,ZAB"}, NotUsed: []string{}},
-		{Source: "awc.metar", AppliedBySource: map[string]string{"ids": "KSMO,KSNA"}, NotUsed: []string{"centers"}},
-		{Source: "awc.taf", AppliedBySource: map[string]string{"ids": "KSMO,KSNA"}, NotUsed: []string{"centers"}},
-		{Source: "awc.airsigmet", AppliedBySource: map[string]string{}, NotUsed: place},
-		{Source: "awc.gairmet", AppliedBySource: map[string]string{}, NotUsed: place},
-		{Source: "awc.isigmet", AppliedBySource: map[string]string{}, NotUsed: place},
-		{Source: "awc.cwa", AppliedBySource: map[string]string{}, NotUsed: place},
+		{Source: "faa.nms.notam", AppliedBySource: map[string]string{"location": "KSMO,KSNA,ZAB"}, AppliedByServer: map[string]string{}, NotUsed: []string{}},
+		{Source: "awc.metar", AppliedBySource: map[string]string{"ids": "KSMO,KSNA"}, AppliedByServer: map[string]string{}, NotUsed: []string{"centers"}},
+		{Source: "awc.taf", AppliedBySource: map[string]string{"ids": "KSMO,KSNA"}, AppliedByServer: map[string]string{}, NotUsed: []string{"centers"}},
+		{Source: "awc.airsigmet", AppliedBySource: map[string]string{}, AppliedByServer: map[string]string{}, NotUsed: place},
+		{Source: "awc.gairmet", AppliedBySource: map[string]string{}, AppliedByServer: map[string]string{}, NotUsed: place},
+		{Source: "awc.isigmet", AppliedBySource: map[string]string{}, AppliedByServer: map[string]string{}, NotUsed: place},
+		{Source: "awc.cwa", AppliedBySource: map[string]string{}, AppliedByServer: map[string]string{}, NotUsed: place},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("translate =\n%+v\nwant\n%+v", got, want)
@@ -132,6 +132,17 @@ func TestBriefingReturnsEverySublistWithOneEnvelope(t *testing.T) {
 	}
 	if len(b.Translation) != 7 {
 		t.Errorf("translation = %+v", b.Translation)
+	}
+	// Every entry says who applied each filter: the server applies none, so
+	// applied_by_server is present and empty, never null or absent.
+	var entries []map[string]json.RawMessage
+	if err := json.Unmarshal(b.raw["translation"], &entries); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if string(e["applied_by_server"]) != "{}" {
+			t.Errorf("translation entry %s: applied_by_server = %s, want {}", e["source"], e["applied_by_server"])
+		}
 	}
 	if !strings.Contains(u.awcQueries["/metar"], "ids=KSMO,KSNA") || !strings.Contains(u.awcQueries["/taf"], "ids=KSMO,KSNA") {
 		t.Errorf("AWC queries = %v", u.awcQueries)

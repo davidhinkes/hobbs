@@ -41,7 +41,7 @@ func registerStatus(srv *mcp.Server, d Deps) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "source_status",
 		Annotations: readOnly("Health of each data source"),
-		Description: d.describe("Checks each upstream source live (the four advisory feeds, the METAR and TAF services with one request each for KLAX, and the NOTAM source) and reports whether it is reachable, how long it took, whether it is a production or test (staging) environment, and whether its endpoint is a documented API. " +
+		Description: d.describe("Checks each upstream source live (the four advisory feeds, the METAR and TAF services with one request each for KLAX, and the NOTAM source) and reports whether it is reachable, how long it took, whether it is a production or test (staging) environment, and whether its endpoint is a documented API. Any problem a check meets is in completeness.issues, such as STATION_NO_DATA when the METAR or TAF service has no report for KLAX. " +
 			"Use it to understand why a response was incomplete. There is no cache: every data call fetches from the source at the time you call." + reliance),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ StatusInput) (*mcp.CallToolResult, any, error) {
 		return statusHandler(ctx, d)
@@ -52,8 +52,10 @@ func registerStatus(srv *mcp.Server, d Deps) {
 // request each, for a large airport that always publishes both.
 const statusProbeStation = "KLAX"
 
-// statusCheck checks one source live.
-type statusCheck func(ctx context.Context) (SourceStatus, provenance.Source, error)
+// statusCheck checks one source live. The issues are those its fetch
+// reported (e.g. STATION_NO_DATA when the probe station has no report), kept
+// so the response shows them.
+type statusCheck func(ctx context.Context) (SourceStatus, provenance.Source, []provenance.Issue, error)
 
 // statusChecks are the checks, in output order: the four advisory feeds, the
 // METAR and TAF services, then the NOTAM source when it is enabled.
@@ -61,22 +63,22 @@ func statusChecks(d Deps) []statusCheck {
 	var checks []statusCheck
 	for _, f := range weatherFeeds {
 		feed := f.get(d.AWC)
-		checks = append(checks, func(ctx context.Context) (SourceStatus, provenance.Source, error) {
+		checks = append(checks, func(ctx context.Context) (SourceStatus, provenance.Source, []provenance.Issue, error) {
 			snap, err := feed.Fetch(ctx)
-			return SourceStatus{ID: feed.ID(), Authority: awc.Authority, Environment: "n/a", RecordsInFeed: len(snap.Items)}, snap.Source, err
+			return SourceStatus{ID: feed.ID(), Authority: awc.Authority, Environment: "n/a", RecordsInFeed: len(snap.Items)}, snap.Source, snap.Issues, err
 		})
 	}
 	for _, s := range []struct {
 		id    string
 		fetch func(*awc.Client, context.Context, []string) (source.Snapshot[model.StationReport], error)
 	}{{awc.IDMETAR, (*awc.Client).METARs}, {awc.IDTAF, (*awc.Client).TAFs}} {
-		checks = append(checks, func(ctx context.Context) (SourceStatus, provenance.Source, error) {
+		checks = append(checks, func(ctx context.Context) (SourceStatus, provenance.Source, []provenance.Issue, error) {
 			snap, err := s.fetch(d.AWC, ctx, []string{statusProbeStation})
-			return SourceStatus{ID: s.id, Authority: awc.Authority, Environment: "n/a", RecordsInFeed: len(snap.Items)}, snap.Source, err
+			return SourceStatus{ID: s.id, Authority: awc.Authority, Environment: "n/a", RecordsInFeed: len(snap.Items)}, snap.Source, snap.Issues, err
 		})
 	}
 	if d.NMS != nil {
-		checks = append(checks, func(ctx context.Context) (SourceStatus, provenance.Source, error) {
+		checks = append(checks, func(ctx context.Context) (SourceStatus, provenance.Source, []provenance.Issue, error) {
 			code, err := d.NMS.Ping(ctx)
 			env := "custom host"
 			switch d.NMS.Host() {
@@ -87,7 +89,7 @@ func statusChecks(d Deps) []statusCheck {
 			}
 			src := provenance.Source{ID: nms.SourceID, Authority: nms.Authority, URL: d.NMS.Host() + "/nmsapi/v1/ping",
 				Documentation: provenance.Documented, RetrievedAt: d.Now().UTC(), ServedFrom: provenance.Live, HTTPStatus: code}
-			return SourceStatus{ID: nms.SourceID, Authority: nms.Authority, Environment: env}, src, err
+			return SourceStatus{ID: nms.SourceID, Authority: nms.Authority, Environment: env}, src, nil, err
 		})
 	}
 	return checks
@@ -99,9 +101,11 @@ func statusHandler(ctx context.Context, d Deps) (*mcp.CallToolResult, any, error
 	statuses := make([]SourceStatus, len(checks))
 	srcs := make([]provenance.Source, len(checks))
 	errs := make([]error, len(checks))
+	found := make([][]provenance.Issue, len(checks))
 	parallel(len(checks), func(i int) {
 		start := time.Now()
-		st, src, err := checks[i](ctx)
+		st, src, is, err := checks[i](ctx)
+		found[i] = is
 		st.LatencyMS = time.Since(start).Milliseconds()
 		st.Documentation, st.Status, st.HTTPStatus = string(provenance.Documented), "ok", src.HTTPStatus
 		if err != nil {
@@ -119,7 +123,7 @@ func statusHandler(ctx context.Context, d Deps) (*mcp.CallToolResult, any, error
 			sources, issues = append(sources, s), append(issues, is)
 			continue
 		}
-		sources = append(sources, srcs[i])
+		sources, issues = append(sources, srcs[i]), append(issues, found[i]...)
 	}
 	if d.NMS == nil {
 		statuses = append(statuses, SourceStatus{ID: nms.SourceID, Authority: nms.Authority, Documentation: string(provenance.Documented),

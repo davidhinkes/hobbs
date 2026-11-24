@@ -509,6 +509,21 @@ func TestSourceStatus(t *testing.T) {
 	}
 }
 
+// A METAR probe that comes back empty is the anomaly the check exists to
+// show: its STATION_NO_DATA warning reaches the response, not only "ok".
+func TestSourceStatusKeepsProbeIssues(t *testing.T) {
+	u := newUpstreams(t)
+	u.awcFail["/metar"] = 204
+	cs := connect(t, u.deps(t, true, false))
+	res, r := call(t, cs, "source_status", nil)
+	if res.IsError {
+		t.Fatal(text(res))
+	}
+	if !r.hasIssue("STATION_NO_DATA", "awc.metar") {
+		t.Errorf("no STATION_NO_DATA issue for awc.metar: %+v", r.Completeness)
+	}
+}
+
 func TestNewRequiresAnAWCClient(t *testing.T) {
 	if _, err := New(Deps{}); err == nil {
 		t.Error("expected an error")
