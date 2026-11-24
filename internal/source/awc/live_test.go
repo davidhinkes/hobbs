@@ -41,3 +41,46 @@ func TestLive(t *testing.T) {
 		})
 	}
 }
+
+// TestLiveStations exercises the real METAR and TAF endpoints with AWC's ids
+// filter. KLAX publishes both, so it must come back with records; KXYZ is not a
+// station, so it must be flagged STATION_NO_DATA, never silently missing.
+func TestLiveStations(t *testing.T) {
+	c := New()
+	fetches := map[string]func(context.Context, []string) (source.Snapshot[model.StationReport], error){
+		IDMETAR: c.METARs,
+		IDTAF:   c.TAFs,
+	}
+	for id, fetch := range fetches {
+		t.Run(id, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+			defer cancel()
+			snap, err := fetch(ctx, []string{"KLAX", "KXYZ"})
+			if err != nil {
+				t.Fatalf("fetch: %v", err)
+			}
+			got := false
+			for _, r := range snap.Items {
+				if err := r.Validate(); err != nil {
+					t.Errorf("%s: %v", r.ID, err)
+				}
+				got = got || r.Station == "KLAX"
+			}
+			if !got {
+				t.Errorf("no record for KLAX")
+			}
+			flagged := false
+			for _, is := range snap.Issues {
+				if is.Code == provenance.StationNoData {
+					for _, r := range is.Refs {
+						flagged = flagged || r == "KXYZ"
+					}
+				}
+			}
+			if !flagged {
+				t.Errorf("KXYZ not flagged STATION_NO_DATA: %+v", snap.Issues)
+			}
+			t.Logf("%s: HTTP %d, %d records, %d issues", id, snap.Source.HTTPStatus, len(snap.Items), len(snap.Issues))
+		})
+	}
+}

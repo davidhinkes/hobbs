@@ -6,7 +6,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/davidhinkes/hobbs/internal/model"
 	"github.com/davidhinkes/hobbs/internal/provenance"
+	"github.com/davidhinkes/hobbs/internal/source"
 	"github.com/davidhinkes/hobbs/internal/source/awc"
 	"github.com/davidhinkes/hobbs/internal/source/nms"
 )
@@ -39,52 +41,77 @@ func registerStatus(srv *mcp.Server, d Deps) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "source_status",
 		Annotations: readOnly("Health of each data source"),
-		Description: d.describe("Checks each upstream source live and reports whether it is reachable, how long it took, whether it is a production or test (staging) environment, and whether its endpoint is a documented API. " +
+		Description: d.describe("Checks each upstream source live (the four advisory feeds, the METAR and TAF services with one request each for KLAX, and the NOTAM source) and reports whether it is reachable, how long it took, whether it is a production or test (staging) environment, and whether its endpoint is a documented API. Any problem a check meets is in completeness.issues, such as STATION_NO_DATA when the METAR or TAF service has no report for KLAX. " +
 			"Use it to understand why a response was incomplete. There is no cache: every data call fetches from the source at the time you call." + reliance),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ StatusInput) (*mcp.CallToolResult, any, error) {
 		return statusHandler(ctx, d)
 	})
 }
 
+// statusProbeStation is the station the METAR and TAF checks ask for: one
+// request each, for a large airport that always publishes both.
+const statusProbeStation = "KLAX"
+
+// statusCheck checks one source live. The issues are those its fetch
+// reported (e.g. STATION_NO_DATA when the probe station has no report), kept
+// so the response shows them.
+type statusCheck func(ctx context.Context) (SourceStatus, provenance.Source, []provenance.Issue, error)
+
+// statusChecks are the checks, in output order: the four advisory feeds, the
+// METAR and TAF services, then the NOTAM source when it is enabled.
+func statusChecks(d Deps) []statusCheck {
+	var checks []statusCheck
+	for _, f := range weatherFeeds {
+		feed := f.get(d.AWC)
+		checks = append(checks, func(ctx context.Context) (SourceStatus, provenance.Source, []provenance.Issue, error) {
+			snap, err := feed.Fetch(ctx)
+			return SourceStatus{ID: feed.ID(), Authority: awc.Authority, Environment: "n/a", RecordsInFeed: len(snap.Items)}, snap.Source, snap.Issues, err
+		})
+	}
+	for _, s := range []struct {
+		id    string
+		fetch func(*awc.Client, context.Context, []string) (source.Snapshot[model.StationReport], error)
+	}{{awc.IDMETAR, (*awc.Client).METARs}, {awc.IDTAF, (*awc.Client).TAFs}} {
+		checks = append(checks, func(ctx context.Context) (SourceStatus, provenance.Source, []provenance.Issue, error) {
+			snap, err := s.fetch(d.AWC, ctx, []string{statusProbeStation})
+			return SourceStatus{ID: s.id, Authority: awc.Authority, Environment: "n/a", RecordsInFeed: len(snap.Items)}, snap.Source, snap.Issues, err
+		})
+	}
+	if d.NMS != nil {
+		checks = append(checks, func(ctx context.Context) (SourceStatus, provenance.Source, []provenance.Issue, error) {
+			code, err := d.NMS.Ping(ctx)
+			env := "custom host"
+			switch d.NMS.Host() {
+			case nms.StagingHost:
+				env = "staging"
+			case nms.ProductionHost:
+				env = "production"
+			}
+			src := provenance.Source{ID: nms.SourceID, Authority: nms.Authority, URL: d.NMS.Host() + "/nmsapi/v1/ping",
+				Documentation: provenance.Documented, RetrievedAt: d.Now().UTC(), ServedFrom: provenance.Live, HTTPStatus: code}
+			return SourceStatus{ID: nms.SourceID, Authority: nms.Authority, Environment: env}, src, nil, err
+		})
+	}
+	return checks
+}
+
 func statusHandler(ctx context.Context, d Deps) (*mcp.CallToolResult, any, error) {
 	now := d.Now().UTC()
-	n := len(weatherFeeds)
-	total := n
-	if d.NMS != nil {
-		total++
-	}
-	statuses := make([]SourceStatus, total)
-	srcs := make([]provenance.Source, total)
-	errs := make([]error, total)
-	parallel(total, func(i int) {
+	checks := statusChecks(d)
+	statuses := make([]SourceStatus, len(checks))
+	srcs := make([]provenance.Source, len(checks))
+	errs := make([]error, len(checks))
+	found := make([][]provenance.Issue, len(checks))
+	parallel(len(checks), func(i int) {
 		start := time.Now()
-		if i < n {
-			feed := weatherFeeds[i].get(d.AWC)
-			snap, err := feed.Fetch(ctx)
-			st := SourceStatus{ID: feed.ID(), Authority: awc.Authority, Documentation: string(provenance.Documented),
-				Environment: "n/a", Status: "ok", HTTPStatus: snap.Source.HTTPStatus, RecordsInFeed: len(snap.Items), LatencyMS: time.Since(start).Milliseconds()}
-			if err != nil {
-				st.Status, st.Error, errs[i] = "error", err.Error(), err
-			}
-			statuses[i], srcs[i] = st, snap.Source
-			return
-		}
-		code, err := d.NMS.Ping(ctx)
-		env := "custom host"
-		switch d.NMS.Host() {
-		case nms.StagingHost:
-			env = "staging"
-		case nms.ProductionHost:
-			env = "production"
-		}
-		st := SourceStatus{ID: nms.SourceID, Authority: nms.Authority, Documentation: string(provenance.Documented),
-			Environment: env, Status: "ok", HTTPStatus: code, LatencyMS: time.Since(start).Milliseconds()}
+		st, src, is, err := checks[i](ctx)
+		found[i] = is
+		st.LatencyMS = time.Since(start).Milliseconds()
+		st.Documentation, st.Status, st.HTTPStatus = string(provenance.Documented), "ok", src.HTTPStatus
 		if err != nil {
 			st.Status, st.Error, errs[i] = "error", err.Error(), err
 		}
-		statuses[i] = st
-		srcs[i] = provenance.Source{ID: nms.SourceID, Authority: nms.Authority, URL: d.NMS.Host() + "/nmsapi/v1/ping",
-			Documentation: provenance.Documented, RetrievedAt: d.Now().UTC(), ServedFrom: provenance.Live, HTTPStatus: code}
+		statuses[i], srcs[i] = st, src
 	})
 
 	var sources []provenance.Source
@@ -96,7 +123,7 @@ func statusHandler(ctx context.Context, d Deps) (*mcp.CallToolResult, any, error
 			sources, issues = append(sources, s), append(issues, is)
 			continue
 		}
-		sources = append(sources, srcs[i])
+		sources, issues = append(sources, srcs[i]), append(issues, found[i]...)
 	}
 	if d.NMS == nil {
 		statuses = append(statuses, SourceStatus{ID: nms.SourceID, Authority: nms.Authority, Documentation: string(provenance.Documented),

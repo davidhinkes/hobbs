@@ -89,6 +89,10 @@ const (
 	AltitudeAssumed      Code = "ALTITUDE_ASSUMED"
 	NotAirworthy         Code = "NOT_AIRWORTHY"
 	CenterNotImplied     Code = "CENTER_NOT_IMPLIED"
+	// StationNoData: a requested station has no report in the source's answer.
+	// The source answers the same way for "no current report", "no TAF
+	// published here" and "unknown station", so this is never a confirmed none.
+	StationNoData Code = "STATION_NO_DATA"
 )
 
 var knownCodes = map[Code]bool{
@@ -96,7 +100,7 @@ var knownCodes = map[Code]bool{
 	GeometryUnavailable: true, GeometryPartial: true, GeometryNotArea: true,
 	AltitudeUnknown: true, ScheduleUnevaluable: true, UpstreamFilterIgnore: true,
 	UndocumentedSource: true, ResultTruncated: true, SourceNotEnabled: true, ClockSkew: true, AltitudeAssumed: true, NotAirworthy: true,
-	CenterNotImplied: true,
+	CenterNotImplied: true, StationNoData: true,
 }
 
 // Source describes one official upstream consulted for a response.

@@ -1,6 +1,6 @@
 # hobbs
 
-An MCP server that makes official US aviation data available to AI agents: NOAA Aviation Weather Center advisories (SIGMET, AIRMET, international SIGMET, CWA) and NOTAMs from the FAA NOTAM Management Service. Every response carries its sources, retrieval times and any problems with the data pull, so an agent can tell a genuine "none" from a failure.
+An MCP server that makes official US aviation data available to AI agents: NOTAMs from the FAA NOTAM Management Service, and METARs, TAFs and weather advisories (SIGMET, AIRMET, international SIGMET, CWA) from the NOAA Aviation Weather Center, for a flight's airports in one call. Every response carries its sources, retrieval times and any problems with the data pull, so an agent can tell a genuine "none" from a failure.
 
 **Provided as is, with no warranty or guarantee.** It is a best-effort copy of data from the sources listed in each response and may be incomplete, delayed or wrong. It is not FAA or NWS data as published and is not endorsed by either. It is advisory only and not an official briefing: consult official sources before flight.
 
@@ -12,19 +12,18 @@ The server only makes data available (uniform, consistent, available). It does n
 
 | Tool | What it does |
 |---|---|
-| `get_notams` | NOTAMs from the FAA NMS-API, filtered by the FAA's own filters: a list of airports and en-route centers (with each airport's center added), a point and radius, a time window, ... |
-| `get_weather_advisories` | The full current SIGMET / AIRMET / international SIGMET / CWA sets |
-| `source_status` | Live health of each source |
+| `get_flight_briefing_data` | For a flight's airports (4-character ICAO identifiers, e.g. `KSMO`) and any en-route centers it also crosses: NOTAMs from the FAA NMS-API (the en-route center the FAA lists on the airports' NOTAMs is added), the latest METARs and TAFs from AWC, and the full current SIGMET / AIRMET / international SIGMET / CWA sets, each in its own sublist under one provenance envelope. `include` chooses the sublists (default all); `translation` shows the parameters sent to each source for the airports and centers given |
+| `source_status` | Live health of each source (the four advisory feeds, METAR, TAF, NOTAMs) |
 
-There is no TFR tool yet: no official, usable TFR source exists (`docs/DESIGN.md` §5.5). TFRs appear in `get_notams` as FDC NOTAMs (text and dates, not outlines).
+There is no TFR tool yet: no official, usable TFR source exists (`docs/DESIGN.md` §5.5). TFRs appear in `get_flight_briefing_data`'s NOTAMs as FDC NOTAMs (text and dates, not outlines).
 
-For a flight, list the airports; the en-route center the FAA lists on their NOTAMs is added, and centers in between are not inferred:
+For a flight, list the airports (departure, destination, alternates). The en-route center the FAA lists on their NOTAMs is added; centers in between are not inferred, so list any other center the flight crosses:
 
 ```json
-{ "name": "get_notams", "arguments": { "locations": ["KSMO", "KPSP", "KTRM"], "include_geometry": false } }
+{ "name": "get_flight_briefing_data", "arguments": { "airports": ["KSMO", "KPSP", "KTRM"], "centers": ["ZAB"] } }
 ```
 
-A `latitude`/`longitude`/`radius_nm` search matches each NOTAM's reference point, not its area, so it is not an area filter.
+There is no time window, route, area or radius input, and no `limit`: the server returns everything the sources return for those places, and leaves relevance to the caller. Geometry is left out unless `include_geometry` is `true`. 3-letter FAA identifiers (`SMO`) are refused with a message naming the ICAO form; the server never adds a `K` itself.
 
 ## Run it
 
