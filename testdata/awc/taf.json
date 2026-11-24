@@ -1,0 +1,205 @@
+[
+ {
+  "icaoId": "KSMO",
+  "dbPopTime": "2026-11-24T05:39:42.965Z",
+  "bulletinTime": "2026-11-24T05:39:00.000Z",
+  "issueTime": "2026-11-24T05:39:00.000Z",
+  "validTimeFrom": 1795500000,
+  "validTimeTo": 1795586400,
+  "rawTAF": "TAF KSMO 240539Z 2406/2506 VRB03KT P6SM SCT250 FM242100 24007KT P6SM SCT250 FM250200 VRB03KT P6SM SCT250",
+  "mostRecent": 1,
+  "remarks": "",
+  "lat": 34.02099,
+  "lon": -118.44713,
+  "elev": 56,
+  "prior": 6,
+  "name": "Santa Monica Muni",
+  "fcsts": [
+   {
+    "timeFrom": 1795500000,
+    "timeTo": 1795554000,
+    "timeBec": null,
+    "fcstChange": null,
+    "probability": null,
+    "wdir": "VRB",
+    "wspd": 3,
+    "wgst": null,
+    "wshearHgt": null,
+    "wshearDir": null,
+    "wshearSpd": null,
+    "visib": "6+",
+    "altim": null,
+    "vertVis": null,
+    "wxString": null,
+    "notDecoded": null,
+    "clouds": [
+     {
+      "cover": "SCT",
+      "base": 25000,
+      "type": null
+     }
+    ],
+    "icgTurb": [],
+    "temp": []
+   },
+   {
+    "timeFrom": 1795554000,
+    "timeTo": 1795572000,
+    "timeBec": null,
+    "fcstChange": "FM",
+    "probability": null,
+    "wdir": 240,
+    "wspd": 7,
+    "wgst": null,
+    "wshearHgt": null,
+    "wshearDir": null,
+    "wshearSpd": null,
+    "visib": "6+",
+    "altim": null,
+    "vertVis": null,
+    "wxString": null,
+    "notDecoded": null,
+    "clouds": [
+     {
+      "cover": "SCT",
+      "base": 25000,
+      "type": null
+     }
+    ],
+    "icgTurb": [],
+    "temp": []
+   },
+   {
+    "timeFrom": 1795572000,
+    "timeTo": 1795586400,
+    "timeBec": null,
+    "fcstChange": "FM",
+    "probability": null,
+    "wdir": "VRB",
+    "wspd": 3,
+    "wgst": null,
+    "wshearHgt": null,
+    "wshearDir": null,
+    "wshearSpd": null,
+    "visib": "6+",
+    "altim": null,
+    "vertVis": null,
+    "wxString": null,
+    "notDecoded": null,
+    "clouds": [
+     {
+      "cover": "SCT",
+      "base": 25000,
+      "type": null
+     }
+    ],
+    "icgTurb": [],
+    "temp": []
+   }
+  ]
+ },
+ {
+  "icaoId": "KSNA",
+  "dbPopTime": "2026-11-24T05:24:34.375Z",
+  "bulletinTime": "2026-11-24T05:24:00.000Z",
+  "issueTime": "2026-11-24T05:24:00.000Z",
+  "validTimeFrom": 1795500000,
+  "validTimeTo": 1795586400,
+  "rawTAF": "TAF KSNA 240524Z 2406/2506 VRB05KT P6SM BKN250 FM242100 24006KT P6SM FEW250 FM250200 VRB04KT P6SM FEW040 FEW250",
+  "mostRecent": 1,
+  "remarks": "",
+  "lat": 33.67976,
+  "lon": -117.86745,
+  "elev": 14,
+  "prior": 4,
+  "name": "Santa Ana/Wayne Arpt",
+  "fcsts": [
+   {
+    "timeFrom": 1795500000,
+    "timeTo": 1795554000,
+    "timeBec": null,
+    "fcstChange": null,
+    "probability": null,
+    "wdir": "VRB",
+    "wspd": 5,
+    "wgst": null,
+    "wshearHgt": null,
+    "wshearDir": null,
+    "wshearSpd": null,
+    "visib": "6+",
+    "altim": null,
+    "vertVis": null,
+    "wxString": null,
+    "notDecoded": null,
+    "clouds": [
+     {
+      "cover": "BKN",
+      "base": 25000,
+      "type": null
+     }
+    ],
+    "icgTurb": [],
+    "temp": []
+   },
+   {
+    "timeFrom": 1795554000,
+    "timeTo": 1795572000,
+    "timeBec": null,
+    "fcstChange": "FM",
+    "probability": null,
+    "wdir": 240,
+    "wspd": 6,
+    "wgst": null,
+    "wshearHgt": null,
+    "wshearDir": null,
+    "wshearSpd": null,
+    "visib": "6+",
+    "altim": null,
+    "vertVis": null,
+    "wxString": null,
+    "notDecoded": null,
+    "clouds": [
+     {
+      "cover": "FEW",
+      "base": 25000,
+      "type": null
+     }
+    ],
+    "icgTurb": [],
+    "temp": []
+   },
+   {
+    "timeFrom": 1795572000,
+    "timeTo": 1795586400,
+    "timeBec": null,
+    "fcstChange": "FM",
+    "probability": null,
+    "wdir": "VRB",
+    "wspd": 4,
+    "wgst": null,
+    "wshearHgt": null,
+    "wshearDir": null,
+    "wshearSpd": null,
+    "visib": "6+",
+    "altim": null,
+    "vertVis": null,
+    "wxString": null,
+    "notDecoded": null,
+    "clouds": [
+     {
+      "cover": "FEW",
+      "base": 4000,
+      "type": null
+     },
+     {
+      "cover": "FEW",
+      "base": 25000,
+      "type": null
+     }
+    ],
+    "icgTurb": [],
+    "temp": []
+   }
+  ]
+ }
+]

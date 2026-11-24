@@ -1,11 +1,18 @@
 // Package awc adapts the NOAA Aviation Weather Center Data API
 // (aviationweather.gov/api/data): SIGMET, G-AIRMET, international SIGMET and
-// Center Weather Advisories.
+// Center Weather Advisories (fetched whole, see feed), and METARs and TAFs
+// (fetched per station, see Client.METARs and Client.TAFs).
 //
 // Behavior here is based on observed responses (docs/DESIGN.md §5.5):
 //   - "no results" is HTTP 204 with an empty body; 400 is a bad parameter.
-//   - upstream filters are unreliable, so whole feeds are fetched and
-//     filtering is left to the caller.
+//   - upstream filters are unreliable, so the advisory feeds are fetched whole
+//     and filtering is left to the caller. The station feeds (METAR, TAF)
+//     are the exception: AWC's own "ids" filter is used and works, so only
+//     the requested stations come back (and the caller is told which
+//     requested stations got nothing).
+//   - for METAR "no results" is HTTP 204; for TAF it is HTTP 200 with "[]".
+//     Both answers are the same for "no current report", "no TAF published
+//     here" and "unknown station".
 //   - types and time formats vary by feed (see flex.go).
 package awc
 
@@ -41,6 +48,8 @@ const (
 	IDGAirmet    = "awc.gairmet"
 	IDIntlSigmet = "awc.isigmet"
 	IDCWA        = "awc.cwa"
+	IDMETAR      = "awc.metar"
+	IDTAF        = "awc.taf"
 )
 
 // ErrUpstream wraps every failure to obtain usable data from AWC.
@@ -90,37 +99,37 @@ func (c *Client) CWA() source.Source[model.Advisory] {
 	return &feed{c, IDCWA, "cwa", model.KindCWA, parseCWA}
 }
 
-func (f *feed) ID() string { return f.id }
-
-// Fetch retrieves the whole feed. On failure it returns a Snapshot whose
-// Source is filled in as far as the fetch got (URL, time, HTTP status) along
-// with an error wrapping ErrUpstream, so callers can still attribute the
-// failure.
-func (f *feed) Fetch(ctx context.Context) (source.Snapshot[model.Advisory], error) {
-	url := f.c.BaseURL + "/" + f.path + "?format=json"
-	snap := source.Snapshot[model.Advisory]{Source: provenance.Source{
-		ID: f.id, Authority: Authority, URL: url,
+// getJSON GETs url and decodes the body as a JSON array of records. It is the
+// one HTTP path for every AWC feed: it sets the request headers, caps the body
+// at maxBody, and fills the provenance Source (URL, retrieval time, HTTP
+// status, ETag, content hash, RecordsInFeed) as far as the fetch got, even on
+// failure. HTTP 204 with an empty body and HTTP 200 with "[]" both mean zero
+// records, not an error. HTTP 200 with an empty body, any other status, and a
+// body that is not a JSON array return an error wrapping ErrUpstream.
+func (c *Client) getJSON(ctx context.Context, id, url string) (provenance.Source, []json.RawMessage, error) {
+	src := provenance.Source{
+		ID: id, Authority: Authority, URL: url,
 		Documentation: provenance.Documented, ServedFrom: provenance.Live,
-	}}
-	fail := func(format string, a ...any) (source.Snapshot[model.Advisory], error) {
-		return snap, fmt.Errorf("%w: %s: %s", ErrUpstream, f.id, fmt.Sprintf(format, a...))
+	}
+	fail := func(format string, a ...any) (provenance.Source, []json.RawMessage, error) {
+		return src, nil, fmt.Errorf("%w: %s: %s", ErrUpstream, id, fmt.Sprintf(format, a...))
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fail("building request: %v", err)
 	}
-	req.Header.Set("User-Agent", f.c.UserAgent)
+	req.Header.Set("User-Agent", c.UserAgent)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := f.c.HTTP.Do(req)
-	snap.Source.RetrievedAt = f.c.Now().UTC()
+	resp, err := c.HTTP.Do(req)
+	src.RetrievedAt = c.Now().UTC()
 	if err != nil {
 		return fail("request failed: %v", err)
 	}
 	defer resp.Body.Close()
-	snap.Source.HTTPStatus = resp.StatusCode
-	snap.Source.ETag = resp.Header.Get("ETag")
+	src.HTTPStatus = resp.StatusCode
+	src.ETag = resp.Header.Get("ETag")
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
@@ -130,13 +139,13 @@ func (f *feed) Fetch(ctx context.Context) (source.Snapshot[model.Advisory], erro
 		return fail("response larger than %d bytes", maxBody)
 	}
 	sum := sha256.Sum256(body)
-	snap.Source.ContentSHA256 = hex.EncodeToString(sum[:])
+	src.ContentSHA256 = hex.EncodeToString(sum[:])
 
 	switch {
 	case resp.StatusCode == http.StatusNoContent && len(body) == 0:
 		// AWC's documented-by-observation "no matching records". A genuine
-		// empty feed, not a failure.
-		return snap, nil
+		// empty answer, not a failure.
+		return src, nil, nil
 	case resp.StatusCode != http.StatusOK:
 		return fail("HTTP %d: %s", resp.StatusCode, source.Truncate(string(body), 200))
 	case len(strings.TrimSpace(string(body))) == 0:
@@ -149,7 +158,26 @@ func (f *feed) Fetch(ctx context.Context) (source.Snapshot[model.Advisory], erro
 	if err := json.Unmarshal(body, &recs); err != nil {
 		return fail("body is not a JSON array: %v", err)
 	}
-	snap.Source.RecordsInFeed = len(recs)
+	src.RecordsInFeed = len(recs)
+	return src, recs, nil
+}
+
+func (f *feed) ID() string { return f.id }
+
+// Fetch retrieves the whole feed. On failure it returns a Snapshot whose
+// Source is filled in as far as the fetch got (URL, time, HTTP status) along
+// with an error wrapping ErrUpstream, so callers can still attribute the
+// failure.
+func (f *feed) Fetch(ctx context.Context) (source.Snapshot[model.Advisory], error) {
+	url := f.c.BaseURL + "/" + f.path + "?format=json"
+	src, recs, err := f.c.getJSON(ctx, f.id, url)
+	snap := source.Snapshot[model.Advisory]{Source: src}
+	if err != nil {
+		return snap, err
+	}
+	fail := func(format string, a ...any) (source.Snapshot[model.Advisory], error) {
+		return snap, fmt.Errorf("%w: %s: %s", ErrUpstream, f.id, fmt.Sprintf(format, a...))
+	}
 
 	var (
 		parseFail, noGeom, lines, noAlt []string
