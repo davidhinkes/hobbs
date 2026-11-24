@@ -20,6 +20,10 @@ const (
 	RawUSNotam RawFormat = "us_notam"
 	// RawAdvisoryText is weather advisory text as issued (SIGMET, CWA, ...).
 	RawAdvisoryText RawFormat = "advisory_text"
+	// RawMETAR is a METAR or SPECI report as issued ("METAR KSNA 240553Z ...").
+	RawMETAR RawFormat = "metar"
+	// RawTAF is a terminal aerodrome forecast as issued ("TAF KSNA 240520Z ...").
+	RawTAF RawFormat = "taf"
 )
 
 // SourceRecord returns raw as a value for a SourceRecord field: raw itself
