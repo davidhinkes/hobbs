@@ -10,9 +10,9 @@ How to read this document:
 
 - §2 **Principles** govern everything else. When a later section seems to conflict with §2, §2 wins.
 - §3 **Product requirements** says who uses the server and the flows it must support.
-- §4 **High-level design** shows the parts and how a request moves through them. §5 has the detail for each part.
+- §4 **High-level design** shows the parts and how a request moves through them. §5 has the detail for each part; the tools' exact contract (inputs, translation, output) is §5.2.
 - §6 covers testing and delivery, §7 safety and trust, §8 open items.
-- §9 **Decisions log** records every decision, with the alternatives considered and why they lost.
+- §9 **Decisions log** records the major decisions (API, scope, architecture, and approaches that did not work), each with the alternatives considered and why they lost.
 
 This is a living document, updated in the same change as the code it describes (see `CLAUDE.md`).
 
@@ -70,8 +70,8 @@ US focus. International SIGMETs are included because AWC publishes them.
 
 **F1. Data for a flight.** The agent lists the flight's airports: departure, destination, alternates, and any it chooses to add.
 1. It calls `get_flight_briefing_data` with `airports: ["KSMO", "KPSP", "KTRM"]`, optionally `centers` (en-route centers the flight also crosses, e.g. `ZAB`) and `include` (which sublists; default all seven).
-2. The server translates that input into each source's own query and shows the translation in the response (`translation`). It asks every included source in parallel: the FAA once per airport and center, then once for each en-route center (ARTCC) the FAA lists on those NOTAMs (here `ZLA`); AWC once for the airports' METARs and once for their TAFs; and the four advisory feeds whole.
-3. The agent gets one envelope with a sublist per kind: `notams`, `metars`, `tafs`, `sigmets`, `airmets`, `intl_sigmets`, `cwas`. Each NOTAM has its raw text and fields, and `returned_for` says which identifiers returned it; `locations.added` names the centers added and why, and a note says centers between the airports were not inferred. Each METAR and TAF has its raw text and AWC's decoded fields; an airport with no report is flagged `STATION_NO_DATA`. The advisories are the full current national sets. Geometry is included only when the agent asks (`include_geometry: true`).
+2. The server asks each included source in its own terms, adding the en-route center the FAA lists on the airports' NOTAMs (here `ZLA`), and shows what it asked each source (`translation`). How a request is handled: §4; the exact contract: §5.2.
+3. The agent gets one envelope with a sublist per kind (`notams`, `metars`, `tafs`, `sigmets`, `airmets`, `intl_sigmets`, `cwas`), each record with its published text, and every gap flagged: an airport with no METAR or TAF (`STATION_NO_DATA`), a failed source, the centers added and the note that centers in between were not inferred. The advisories are the full current national sets. Geometry comes only when asked (`include_geometry: true`).
 4. The agent decides what matters: which advisories touch the route, time and altitude, which NOTAMs are in effect during the flight (there is no time filter, §3.4), and whether to call again with any other centers the route crosses.
 
 **F2. Can I trust this answer?** In every response the agent reads `completeness.status` (only `complete` means a clean pull), the `issues`, `provenance.sources` (what was fetched, when, from where) and `airworthy`. To see why something was incomplete, it calls `source_status`, which checks every source live.
@@ -147,7 +147,7 @@ flowchart TB
 **A request, end to end** (F1):
 
 1. The agent calls `get_flight_briefing_data` with `airports: ["KSMO", "KPSP"]`.
-2. The tool validates the input: 4-character ICAO identifiers, at most 10 airports and centers, known `include` values. Anything wrong comes back at once as a correctable error, and nothing is sent upstream. (A call with no `airports` field at all is refused earlier, by the MCP SDK's check against the input schema, so that message is the SDK's.)
+2. The tool validates the input: 4-character ICAO identifiers, at most 10 airports and centers, known `include` values. Anything wrong comes back at once as a correctable error, and nothing is sent upstream (§5.2).
 3. It translates the input into one query per source. The translation is a pure function of the validated input, returned in the response as `translation`.
 4. It asks the included sources in parallel. NOTAMs: the NMS-API once per airport and center, each query its own provenance source (`faa.nms.notam:KSMO`), then once for each new en-route center the FAA lists on those NOTAMs (`faa.nms.notam:ZLA`). METARs and TAFs: one AWC request each for all the airports (`awc.metar`, `awc.taf`). Advisories: the four AWC feeds, whole.
 5. It merges the NOTAMs (the same NMS id appears once, with `returned_for`), flags any airport with no METAR or no TAF (`STATION_NO_DATA`), puts each source's records in their sublist in the source's order, and removes geometry unless `include_geometry` is true.
@@ -251,7 +251,7 @@ Two tools, both read-only, both returning the §5.1 envelope. Input errors come 
 
 The one data tool (since 2026-11-24, §9): one input that describes the flight, translated by the server into each source's own query, and one output with a sublist per kind of data. It takes places only: no time window, no `limit`, no filter of the server's own (§3.4, §9).
 
-**Input:**
+##### Input
 
 | Field | Rules |
 |---|---|
@@ -262,7 +262,9 @@ The one data tool (since 2026-11-24, §9): one input that describes the flight, 
 
 A center given under `airports` (`KZLA` is 4 characters) is accepted: its NOTAMs are returned, and METAR and TAF flag it `STATION_NO_DATA`, so the mistake shows.
 
-**Translation.** `translate` is a pure function from the validated input to one entry per included source, in `include` order, returned as `data.translation`. Each entry has `source` (the source id; NOTAM queries appear in provenance once per location, as `faa.nms.notam:KSMO`), `applied_by_source` (the parameters sent, which the source applies), `applied_by_server` (the filters the server applied itself: always present and always `{}`, because the server applies no filter of its own; R4) and `not_used` (the parts of the input that source did not use).
+##### Translation
+
+`translate` is a pure function from the validated input to one entry per included source, in `include` order, returned as `data.translation`. Each entry has `source` (the source id; NOTAM queries appear in provenance once per location, as `faa.nms.notam:KSMO`), `applied_by_source` (the parameters sent, which the source applies), `applied_by_server` (the filters the server applied itself: always present and always `{}`, because the server applies no filter of its own; R4) and `not_used` (the parts of the input that source did not use).
 
 | Source (`source`) | What it is asked (`applied_by_source`) | `not_used` |
 |---|---|---|
@@ -275,7 +277,7 @@ Because the translation is computed from the input alone, it lists the parameter
 
 The translation keeps three rules, which the tests check: **shown** (every source query is in `translation`, with what it did not use); **nothing dropped quietly** (an airport a source has nothing for is flagged, `STATION_NO_DATA`); **nothing inferred** (no places, times or identifiers the caller did not give; the one addition, the implied center, uses only the FAA's own association).
 
-**Output:**
+##### Output
 
 ```jsonc
 {
@@ -301,6 +303,8 @@ The translation keeps three rules, which the tests check: **shown** (every sourc
 - A sublist not in `include` is absent; an included one is always a list, `[]` when the source had nothing or failed (the failure is then in provenance and `completeness`). `locations` is present only when NOTAMs are included. Each sublist is in the source's order; NOTAMs in query order.
 - One envelope covers everything: each upstream request is its own provenance source (`faa.nms.notam:KSMO`, `faa.nms.notam:ZLA`, `awc.metar`, `awc.taf`, `awc.airsigmet`, ...), so a failed source makes the response `incomplete` without hiding the others.
 
+##### What each sublist holds
+
 **NOTAMs.** The FAA is asked once per airport and center. Results are merged; a NOTAM returned for several identifiers appears once, with `returned_for` listing them (keyed on the FAA's unique NMS id). Each NOTAM has its full text in `raw_text` (ICAO rendering preferred; `raw_format` `icao_notam` or `us_notam`) and any other rendering the FAA supplied in `translations`, the published fields, canonical geometry (§5.4) and `parse_issues`.
 
 - **Implied centers** (always on). The en-route center the FAA lists on the NOTAMs of an airport or center given (`affectedFir`) is also queried, and named under `locations.added` with the requested identifiers whose NOTAMs list it and some of those NOTAMs. `ZLA` and `KZLA` count as the same. It is one round, never recursive. An airport or center whose NOTAMs list no center gets a `CENTER_NOT_IMPLIED` warning. **Centers between the airports are never inferred** (§9); every response with NOTAMs says so in `locations.note`, and the caller lists any other center the flight crosses in `centers`.
@@ -309,9 +313,13 @@ The translation keeps three rules, which the tests check: **shown** (every sourc
 
 **Advisories** are the complete current SIGMET, graphical AIRMET, international SIGMET and CWA sets, not filtered by airport or route; the four feeds map to `sigmets`, `airmets`, `intl_sigmets` and `cwas`.
 
-**Geometry.** With `include_geometry` false (the default) the response leaves out `geometry` and `geometry_derivation` from every NOTAM and advisory and the station position (`geometry`) from every METAR and TAF, and lists `omitted_fields: ["geometry"]`; nothing else is removed. With it true, `omitted_fields` is `[]`. The default is false because a KSMO/KSAN briefing with geometry is roughly 300 KB of JSON, about twice that on the wire (§5.6).
+##### Geometry
 
-**The description** an agent reads states the not-airworthy label, the completeness rule, that source text is untrusted data, the ICAO-only input, that centers are never inferred, the TFR limit, that `fltCat` is AWC's and not computed by hobbs, that the advisories are the full national sets, and that the server decides nothing about relevance (a test checks the key phrases).
+With `include_geometry` false (the default) the response leaves out `geometry` and `geometry_derivation` from every NOTAM and advisory and the station position (`geometry`) from every METAR and TAF, and lists `omitted_fields: ["geometry"]`; nothing else is removed. With it true, `omitted_fields` is `[]`. The default is false because a KSMO/KSAN briefing with geometry is roughly 300 KB of JSON, about twice that on the wire (§5.6).
+
+##### Description
+
+The description an agent reads states the not-airworthy label, the completeness rule, that source text is untrusted data, the ICAO-only input, that centers are never inferred, the TFR limit, that `fltCat` is AWC's and not computed by hobbs, that the advisories are the full national sets, and that the server decides nothing about relevance (a test checks the key phrases).
 
 #### `source_status`
 
@@ -323,7 +331,13 @@ All sources map into a few shared types (`internal/model`), using standard ICAO 
 
 - **Notam:** id, type (N/R/C) and what it replaces; location and FIR (en-route center); Q-code; effective times, `permanent` and `estimated`; the schedule as published (not interpreted); lower and upper limits; geometry and its derivation; `text` (the FAA's own `text` field: the message body with its domestic keyword, e.g. `SVC ...`; not the same as ICAO item E), `raw_text` and `raw_format`, `translations` (every other rendering the FAA supplied), and `source_record` when needed (§5.1); NMS id, classification, series, issue and update times; `returned_for`; `parse_issues`.
 - **Advisory:** id, kind, source feed and issuer; hazard, severity and qualifier as published; issue and validity times; limits; geometry and its derivation; `details` (source fields with no common meaning, kept as published); `raw_text` and `raw_format` (`advisory_text`), or `source_record` (§5.1); `parse_issues`.
-- **StationReport** (METARs, SPECIs and TAFs; since 2026-11-24): `id` built from published fields, `<report type> <station> <time>` (`METAR KSNA 2026-11-24T05:53:00Z`, `SPECI ...`, or `TAF <station> <issue time>`; a repeat of the same id in one answer gets ` #2`); `kind` (`METAR` or `TAF`) and `source` (`awc.metar`, `awc.taf`); `report_type` as published (AWC `metarType`: `METAR` or `SPECI`; empty for TAFs); `station`, `station_name`, `elevation_m` (AWC's `elev`, metres) and `geometry`, a `Point` at the published `lat`/`lon`; times as RFC 3339 UTC, each only when published (AWC mixes epoch seconds and ISO strings): `observed_at`, `reported_at`, `received_at` for a METAR, `issued_at`, `valid_from`, `valid_to` for a TAF (a validity window whose end precedes its start is left out and flagged); `raw_text` (AWC `rawOb` / `rawTAF`, unaltered) with `raw_format` `metar` or `taf`; `details`, every other AWC field as published, including `fltCat` (AWC's flight category, not computed by hobbs), `visib` as a string (`"10+"`), `altim` in hPa (the raw METAR gives inches), `clouds` and the TAF's forecast periods `fcsts`; `source_record` and `parse_issues` as for the other records (§5.1). A record that cannot be parsed is kept and flagged `PARSE_FAILED`; one with no station identifier is kept as a stub (`awc.metar#<n>` or `awc.taf#<n>`) with its source record, the fields that did parse (its `raw_text` included) and a parse issue saying the identifier is missing. Units are not converted and cloud layers not normalized into fields of our own: each conversion would be an interpretation to document and flag, and AWC's decoding is already kept whole. That could be added later under §2.1, with the originals kept (§9).
+- **StationReport** (METARs, SPECIs and TAFs; since 2026-11-24):
+  - identity: `id` built from published fields, `<report type> <station> <time>` (`METAR KSNA 2026-11-24T05:53:00Z`, `SPECI ...`, or `TAF <station> <issue time>`; a repeat of the same id in one answer gets ` #2`); `kind` (`METAR` or `TAF`); `source` (`awc.metar`, `awc.taf`); `report_type` as published (AWC `metarType`: `METAR` or `SPECI`; empty for TAFs);
+  - station: `station`, `station_name`, `elevation_m` (AWC's `elev`, metres) and `geometry`, a `Point` at the published `lat`/`lon`;
+  - times, as RFC 3339 UTC and each only when published (AWC mixes epoch seconds and ISO strings): `observed_at`, `reported_at`, `received_at` for a METAR; `issued_at`, `valid_from`, `valid_to` for a TAF (a validity window whose end precedes its start is left out and flagged);
+  - text: `raw_text` (AWC `rawOb` / `rawTAF`, unaltered) with `raw_format` `metar` or `taf`; `source_record` and `parse_issues` as for the other records (§5.1);
+  - `details`: every other AWC field as published, including `fltCat` (AWC's flight category, not computed by hobbs), `visib` as a string (`"10+"`), `altim` in hPa (the raw METAR gives inches), `clouds` and the TAF's forecast periods `fcsts`. Units are not converted and cloud layers not normalized into fields of our own: each conversion would be an interpretation to document and flag, and AWC's decoding is already kept whole; that could be added later under §2.1, with the originals kept (§9);
+  - bad records: one that cannot be parsed is kept and flagged `PARSE_FAILED`; one with no station identifier is kept as a stub (`awc.metar#<n>` or `awc.taf#<n>`) with its source record, the fields that did parse (its `raw_text` included) and a parse issue saying the identifier is missing.
 - **Altitude:** `value` (feet, or the flight level number for FL) and `datum` (MSL, AGL, FL, SFC, UNL or UNKNOWN). Unknown is explicit, with no value, and never zero.
 - Times are UTC. The clock is injectable for tests. Nothing in the model decides whether something is active or applicable.
 
@@ -443,16 +457,26 @@ testdata/              captured upstream responses, used only by tests
 
 ## 8. Open items
 
+Open questions and known gaps, by area. When one is decided, record the decision in §9 and remove it here.
+
+**Sources**
+
 - **NMS production.** Access so far is staging; production is a separate onboarding step with the NOTAM Service Center. Until then the hosted server cannot be airworthy.
+- **The FAA's center association is loose** (§5.5). It errs toward more data, which is the safe direction; watch it on production.
+- **AWC's terms.** AWC's documented rate limit and terms of use are not yet checked.
+
+**API and data**
+
 - **NOTAM vertical limits from the Q-line** (proposed, not decided). Many NOTAMs report `lower`/`upper` as `UNKNOWN` (76 of 163 on a KSMO to KPSP test) because the FAA's structured limit fields are empty, although the ICAO Q-line states them (e.g. `000/008`: surface to FL008). Reading them from the Q-line would be a §2.1 "reasonable interpretation" if the source of the value is marked.
-- **`Origin` validation.** The MCP spec says servers must validate it; the SDK's cross-origin protection can be turned on in two lines. Low risk for an open, read-only server with no user credentials.
-- **Response size.** Results are large (§3.3 accepts this) and doubled on the wire (§5.6). Dropping the text copy would halve it but could break older clients. Since 2026-11-24 a NOTAM's `raw_text` rendering is no longer repeated in `translations` (§9), about 23% less NOTAM data on a KSMO/KEMT query, and `get_flight_briefing_data` leaves geometry out unless asked (a KSMO/KSAN briefing with geometry is roughly 300 KB of JSON). One call now carries NOTAMs, METARs, TAFs and the four national advisory sets together.
 - **An area (bounding-box) input for METARs and TAFs** (deferred by the maintainer, 2026-11-24). AWC's METAR and TAF endpoints honor `bbox=` (§5.5). It can be added without breaking callers; the open question is how to flag a missing report when there is no list of expected stations.
 - **The narrower NOTAM and advisory queries**, dropped on 2026-11-24 with the two earlier data tools (§9): point and radius (it matches reference points, not areas, §5.5), NOTAM number, free text, feature, classification, accountability, last-updated, and the advisory hazard. If wanted again, they need a decision with the maintainer on where they go, since one way to ask was the reason for the single tool.
-- **The FAA's center association is loose** (§5.5). It errs toward more data, which is the safe direction; watch it on production.
+- **Response size.** Results are large (§3.3 accepts this) and doubled on the wire (§5.6). Dropping the text copy would halve it but could break older clients. Since 2026-11-24 a NOTAM's `raw_text` rendering is no longer repeated in `translations` (§9), about 23% less NOTAM data on a KSMO/KEMT query, and `get_flight_briefing_data` leaves geometry out unless asked (a KSMO/KSAN briefing with geometry is roughly 300 KB of JSON). One call now carries NOTAMs, METARs, TAFs and the four national advisory sets together.
+
+**Operations**
+
+- **`Origin` validation.** The MCP spec says servers must validate it; the SDK's cross-origin protection can be turned on in two lines. Low risk for an open, read-only server with no user credentials.
 - **Required CI on `main`:** a GitHub branch rule requiring the `go` and `docker` checks would block merging a red PR (repo Settings → Branches).
-- AWC's documented rate limit and terms of use.
-- An external uptime alert for the hosted endpoint.
+- **Uptime alert.** There is no external uptime alert for the hosted endpoint.
 
 ## 9. Decisions log
 
