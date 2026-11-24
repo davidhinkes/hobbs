@@ -177,6 +177,8 @@ The FAA's effective-window filter on staging, probed and recorded in `docs/DESIG
 
 If it returns only NOTAMs entirely inside the window, or drops PERM or EST NOTAMs, it would hide NOTAMs that matter. Then the window is **not** sent to the FAA: `translation` and a `TIME_WINDOW_NOT_APPLIED` issue say so, and every current NOTAM is returned. That fallback is a visible over-inclusion, which §2 accepts.
 
+**Probe result (2026-11-24, FAA staging, through the hosted `get_notams`, KSNA, which had 20 NOTAMs unfiltered):** the FAA returns only NOTAMs **entirely inside** the window. A 3-hour window on 2026-11-26 returned 0, as did 3-hour windows on 2026-11-23 and 2026-11-24 that contained "now", although 17 of the 20 were in effect throughout. A window of 2026-11-20 to 2026-11-30 returned only the 2 NOTAMs that start and end inside it (11/030, A1533/26), not 11/035, which starts on 11-21 and ends on 12-02. A window of 2025-01-01 to 2028-12-31 returned 19: every NOTAM except 10/054, which has no end time. So the window fails both tests above, and **the window is not sent to the FAA**.
+
 ## 7. What AWC was observed to do (probed live, 2026-11-24)
 
 These go into `docs/DESIGN.md` §5.5 with the build.
