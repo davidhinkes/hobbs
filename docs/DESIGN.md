@@ -237,7 +237,6 @@ Input errors come back as `isError` results with a message the agent can act on,
 - **The FAA's center association is loose**: a center's query can return TFRs far outside it (Worcester, MA under ZDC; Oregon, OH under ZLA; SPIKE.md). It errs toward more data, which is the safe direction; watch it on production.
 - AWC documented rate limit and terms of use.
 - An external uptime alert for the hosted endpoint.
-- **Railway "wait for CI"** is not yet on: with it, Railway deploys only commits whose CI passed. A dashboard setting (service → Settings → Source).
 - **Required CI on `main`**: a GitHub branch rule requiring the `go` and `docker` checks would block merging a red PR (repo Settings → Branches). Not set.
 
 ## 8. Decisions log
@@ -267,3 +266,5 @@ Dated, newest last. Each says what was decided and why, so a later session does 
 | 2026-11-24 | GitHub Actions CI on every pull request and push to `main`: gofmt, vet, build, offline tests, staticcheck, deadcode against an expected list, Docker build; Railway to wait for it before deploying | catch breakage before it ships; the deploy only takes commits that pass |
 | 2026-11-24 | Railway auto-deploys `main` (the Railway GitHub App was given access to the repo; PR #5 was the first merge to deploy on its own) | a merge is the deploy; no manual step |
 | 2026-11-24 | Manage Railway with the direct MCP tools, not `railway-agent`; settings they cannot reach are changed by the maintainer in the dashboard | the agent reported a change it had not made and started an unrequested deployment |
+| 2026-11-24 | Railway waits for CI before deploying (set in the dashboard; first seen on PR #6: the deploy waited for CI, then succeeded) | only commits that pass CI reach production |
+| 2026-11-24 | **Docs are part of every change**: updated in the same PR, for a person's high-level understanding and for a future agent to continue with no chat history (`CLAUDE.md` says what goes where) | the maintainer's core development principle; work is picked up across sessions |
