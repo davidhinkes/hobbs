@@ -935,3 +935,36 @@ func TestNotamLocationsAreValidated(t *testing.T) {
 		t.Error("nothing may be sent for a request that is refused")
 	}
 }
+
+// The parameters both data tools share must be described identically, so an
+// agent reads one contract (struct tags cannot share a constant).
+func TestSharedParametersAreDescribedTheSame(t *testing.T) {
+	u := newUpstreams(t)
+	cs := connect(t, u.deps(t, true, false))
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	desc := map[string]map[string]string{}
+	for _, tool := range res.Tools {
+		b, _ := json.Marshal(tool.InputSchema)
+		var sch struct {
+			Properties map[string]struct {
+				Description string `json:"description"`
+			} `json:"properties"`
+		}
+		json.Unmarshal(b, &sch)
+		for name, p := range sch.Properties {
+			if desc[name] == nil {
+				desc[name] = map[string]string{}
+			}
+			desc[name][tool.Name] = p.Description
+		}
+	}
+	for _, name := range []string{"limit", "include_geometry"} {
+		n, w := desc[name]["get_notams"], desc[name]["get_weather_advisories"]
+		if n == "" || n != w {
+			t.Errorf("%s is described differently:\n get_notams: %q\n get_weather_advisories: %q", name, n, w)
+		}
+	}
+}

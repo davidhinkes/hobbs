@@ -45,7 +45,7 @@ func main() {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	var o options
 	flag.BoolVar(&o.airworthy, "airworthy", false, "declare responses usable for flight planning and navigation (airworthy: true). Off by default: every response then says airworthy: false. Accepted only without -nms-url or with the FAA's production NMS-API URL ("+nms.ProductionHost+")")
-	flag.StringVar(&o.http, "http", "", "listen address for the hosted Streamable HTTP server, e.g. :8080 (on Railway: -http :$PORT); empty serves MCP over stdio")
+	flag.StringVar(&o.http, "http", "", "listen address for the hosted Streamable HTTP server, e.g. :8080; empty serves MCP over stdio")
 	flag.Float64Var(&o.rate, "rate", 5, "HTTP only: global request rate limit in requests per second (bursts up to twice this); an error without -http")
 	flag.StringVar(&o.nmsURL, "nms-url", "", "NMS-API server for NOTAMs, scheme and host only (e.g. "+nms.StagingHost+"); empty turns NOTAMs off. Credentials from HOBBS_NMS_CLIENT_ID / HOBBS_NMS_CLIENT_SECRET")
 	flag.Parse()

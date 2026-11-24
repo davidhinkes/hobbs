@@ -8,8 +8,8 @@ import (
 	"github.com/davidhinkes/hobbs/internal/provenance"
 )
 
-// ErrNotEnabled is returned by an adapter that is configured off, for
-// example the NOTAM adapter before FAA credentials exist.
+// ErrNotEnabled is returned by an adapter that is configured off (see
+// nms.Disabled).
 var ErrNotEnabled = errors.New("source not enabled")
 
 // Snapshot is one fetch of a source: the parsed items plus everything needed
