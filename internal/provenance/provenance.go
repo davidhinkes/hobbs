@@ -167,8 +167,8 @@ type Envelope[T any] struct {
 func (c Completeness) CanAssertNone() bool { return c.Status == Complete }
 
 // New builds a validated Envelope. It derives ages, adds issues implied by the
-// sources (stale cache, undocumented endpoint, clock skew, not consulted) and
-// computes the completeness status. It returns an error if the provenance is
+// sources (stale cache, undocumented endpoint, clock skew) and computes the
+// completeness status (any not-consulted source makes it incomplete). It returns an error if the provenance is
 // missing or malformed, so a handler cannot ship an unattributed result.
 func New[T any](data T, evaluatedAt time.Time, sources []Source, notConsulted []NotConsulted, issues []Issue) (Envelope[T], error) {
 	var zero Envelope[T]

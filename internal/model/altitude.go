@@ -9,13 +9,13 @@ const (
 	DatumMSL     Datum = "MSL"     // feet above mean sea level
 	DatumAGL     Datum = "AGL"     // feet above ground level
 	DatumFL      Datum = "FL"      // flight level (hundreds of feet, standard pressure)
-	DatumSFC     Datum = "SFC"     // surface; Feet is nil
-	DatumUnl     Datum = "UNL"     // unlimited; Feet is nil
-	DatumUnknown Datum = "UNKNOWN" // not stated or not parseable; Feet is nil
+	DatumSFC     Datum = "SFC"     // surface; Value is nil
+	DatumUnl     Datum = "UNL"     // unlimited; Value is nil
+	DatumUnknown Datum = "UNKNOWN" // not stated or not parseable; Value is nil
 )
 
 // Altitude is a vertical limit. Unknown is represented explicitly and must
-// never be treated as zero: nil Feet with DatumUnknown means "not known".
+// never be treated as zero: a nil Value with DatumUnknown means "not known".
 type Altitude struct {
 	// Value is feet for MSL/AGL and the flight level number (e.g. 370 for FL370)
 	// for FL. Nil for SFC, UNL and UNKNOWN.

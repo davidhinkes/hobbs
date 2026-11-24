@@ -101,16 +101,16 @@ Rules that follow:
 |---|---|
 | `SOURCE_UNAVAILABLE` | Upstream failed and no usable cache exists |
 | `STALE_DATA` | Served from cache older than the source's freshness policy; age reported. Not emitted today: there is no cache (§4) |
-| `UPSTREAM_ERROR` | Non-2xx, malformed body, or timeout (used with a cache fallback) |
+| `UPSTREAM_ERROR` | Non-2xx, malformed body, or timeout on part of a fetch, with data still returned. Emitted only by the TFR adapter, which is off |
 | `PARSE_FAILED` | A record could not be parsed; raw text retained, record flagged, not dropped |
 | `GEOMETRY_UNAVAILABLE` | Record has no spatial extent as published (e.g. text-only security TFRs); returned without geometry |
-| `GEOMETRY_PARTIAL` | Some shapes unresolved (e.g. navaid-relative vertices) |
+| `GEOMETRY_PARTIAL` | Some shapes unresolved (e.g. navaid-relative vertices). Emitted only by the TFR adapter, which is off |
 | `GEOMETRY_NOT_AREA` | Line feature (e.g. freezing level); a line has no inside |
 | `ALTITUDE_UNKNOWN` | Missing or ambiguous vertical limits or datum; reported as unknown, never assumed |
 | `SCHEDULE_UNEVALUABLE` | Record carries a schedule the server does not interpret; read it from the record |
 | `UPSTREAM_FILTER_IGNORED` | Upstream ignores a filter; we do not substitute our own, the full published set is returned (info). Defined but not emitted today: no tool forwards a filter the source ignores |
 | `ALTITUDE_ASSUMED` | Vertical limits had no stated datum and were read by a documented rule (AWC feet, flight level from 18,000 ft) (info) |
-| `UNDOCUMENTED_SOURCE` | Endpoint is not a documented, supported API (info) |
+| `UNDOCUMENTED_SOURCE` | Endpoint is not a documented, supported API (info). Added automatically for an undocumented source; none is in use today (only the TFR site would be) |
 | `RESULT_TRUNCATED` | Output limited; count of omitted items given |
 | `SOURCE_NOT_ENABLED` | Source configured off (NOTAMs without `-nms-url`) |
 | `NOT_AIRWORTHY` | The server is not airworthy (§5): every response from every tool carries it, so nothing reads as complete |
@@ -132,7 +132,7 @@ The server's job is to make official aviation data **easily available and correc
 In scope:
 - Fetching, parsing and normalizing official data into structured form (format, not meaning), with the raw text preserved and the original source fields kept alongside any interpretation.
 - Forwarding the filters an official API supports (e.g. the NMS-API's location, point-and-radius, effective-time and classification filters) and **saying in the response that the source applied them**. The filtering is the FAA's, not ours.
-- Where the source offers no filter (AWC and the TFR feed give no usable area filter), returning the full published set, optionally narrowed only by exact match on a field the source itself publishes (e.g. a TFR's state, or an advisory's hazard).
+- Where the source offers no filter (AWC and the TFR feed give no usable area filter), returning the full published set, optionally narrowed only by exact match on a field the source itself publishes (today only an advisory's `hazard`).
 - Asking the source once per identifier the caller lists and merging the results, and adding the en-route center the source itself lists on those results (see §5). This only ever adds queries; it never narrows a result.
 - Being honest about gaps (§1).
 
@@ -170,7 +170,7 @@ internal/geo/          translation of shapes into canonical geometry (no interse
 internal/mcpserver/    tools, input validation, response shaping
 ```
 
-Altitude is its own type: value, datum (MSL/AGL/FL/SFC/UNL), and an explicit "unknown" that is never zero. Time is UTC `time.Time` with an injectable clock. The server holds no logic that decides whether something is active or applicable.
+Altitude is its own type: `value` (feet, or the flight level number for FL) and `datum` (MSL, AGL, FL, SFC, UNL or UNKNOWN); unknown is explicit, with no value, and never zero. Time is UTC `time.Time` with an injectable clock. The server holds no logic that decides whether something is active or applicable.
 
 ## 4a. Geography: one representation
 

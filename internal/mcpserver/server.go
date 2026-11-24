@@ -166,12 +166,6 @@ func parallel(n int, fn func(i int)) {
 // maxLimit bounds a caller-chosen limit.
 const maxLimit = 100000
 
-// limitDoc and geometryDoc are shared parameter descriptions.
-const (
-	limitDoc    = "Optional. Return at most this many items. There is no default cap; if you set one and items are omitted, the response says how many (RESULT_TRUNCATED) and is not \"complete\"."
-	geometryDoc = "Optional, default true. Set false to leave geometry out of each item to make the response much smaller; the response lists geometry under omitted_fields."
-)
-
 // checkLimit validates a caller-chosen limit.
 func checkLimit(limit *int) error {
 	if limit != nil && (*limit < 1 || *limit > maxLimit) {
