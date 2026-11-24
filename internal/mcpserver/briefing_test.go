@@ -373,3 +373,30 @@ func TestBriefingInputErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestBriefingNOTAMsOnlyWithSourceOffIsAnError(t *testing.T) {
+	cs := connect(t, newUpstreams(t).deps(t, false, false))
+	res, r := call(t, cs, "get_flight_briefing_data", map[string]any{"airports": []string{"KSMO"}, "include": []string{"notams"}})
+	if !res.IsError {
+		t.Fatal("the only included source is not enabled: isError must be true")
+	}
+	if res.StructuredContent == nil || r.Completeness.Status != "incomplete" || !r.hasIssue("SOURCE_NOT_ENABLED", "faa.nms.notam") {
+		t.Errorf("the envelope must still be present and say why: %s", text(res))
+	}
+	if b := decodeBriefing(t, r); b.items(t, "notams") == nil {
+		t.Error("notams must be present as [] so the gap is visible")
+	}
+}
+
+func TestBriefingEveryIncludedSourceFailedIsAnError(t *testing.T) {
+	u := newUpstreams(t)
+	u.awcFail["/metar"] = 503
+	cs := connect(t, u.deps(t, false, false))
+	res, r := call(t, cs, "get_flight_briefing_data", map[string]any{"airports": []string{"KSMO"}, "include": []string{"notams", "metars"}})
+	if !res.IsError {
+		t.Fatal("NMS is off and METAR failed: isError must be true")
+	}
+	if res.StructuredContent == nil || !r.hasIssue("SOURCE_NOT_ENABLED", "faa.nms.notam") || !r.hasIssue("SOURCE_UNAVAILABLE", "awc.metar") {
+		t.Errorf("the envelope must still be present: %s", text(res))
+	}
+}

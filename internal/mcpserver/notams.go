@@ -7,33 +7,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-
 	"github.com/davidhinkes/hobbs/internal/model"
 	"github.com/davidhinkes/hobbs/internal/provenance"
 	"github.com/davidhinkes/hobbs/internal/source"
 	"github.com/davidhinkes/hobbs/internal/source/nms"
 )
-
-// NotamsInput is the input of get_notams. Every filter is forwarded to the
-// FAA NMS-API, which applies it; the server adds none of its own.
-type NotamsInput struct {
-	Locations       []string `json:"locations,omitempty" jsonschema:"Location identifiers, up to 10: airports (ICAO or domestic, e.g. KSMO or SMO) and en-route centers (ARTCC, e.g. ZLA). The FAA is asked once per identifier, with any other filters applied to each, and the results are merged: a NOTAM returned for several identifiers appears once, with returned_for listing them. Identifiers are the FAA's associations: a navaid identifier may return the NOTAMs of an airport the FAA ties it to."`
-	AddCenters      *bool    `json:"add_centers,omitempty" jsonschema:"Optional, default true, used with locations. Also asks for each en-route center (ARTCC) that the FAA lists on the NOTAMs returned for the given locations, if it is not already in the list; the response lists each added center under locations.added and why. Centers between the given locations are never inferred: a flight that passes through other centers must list them."`
-	Latitude        *float64 `json:"latitude,omitempty" jsonschema:"Decimal degrees, -90 to 90. Must be given together with longitude and radius_nm."`
-	Longitude       *float64 `json:"longitude,omitempty" jsonschema:"Decimal degrees, -180 to 180. Must be given together with latitude and radius_nm."`
-	RadiusNM        *float64 `json:"radius_nm,omitempty" jsonschema:"Search radius in nautical miles, 0 to 100 (the API's limit). Must be given together with latitude and longitude. The FAA matches each NOTAM's reference point, not its area: a NOTAM whose area reaches into the circle but whose reference point is farther away is not returned."`
-	EffectiveStart  string   `json:"effective_start,omitempty" jsonschema:"RFC 3339 UTC timestamp. Must be given together with effective_end. The API returns NOTAMs effective in the window."`
-	EffectiveEnd    string   `json:"effective_end,omitempty" jsonschema:"RFC 3339 UTC timestamp. Must be given together with effective_start."`
-	LastUpdated     string   `json:"last_updated,omitempty" jsonschema:"RFC 3339 UTC timestamp within the previous 24 hours; returns NOTAMs created, updated or cancelled since then, active or not."`
-	Classification  string   `json:"classification,omitempty" jsonschema:"One of DOMESTIC, INTERNATIONAL, MILITARY, LOCAL_MILITARY, FDC. Needs another filter alongside it. Note records report the short form (DOM, INTL, MIL, FDC)."`
-	Feature         string   `json:"feature,omitempty" jsonschema:"NOTAM feature: RWY, TWY, APRON, AD, OBST, NAV, COM, SVC, AIRSPACE, ODP, SID, STAR, CHART, DATA, DVA, IAP, VFP, ROUTE, SPECIAL or SECURITY."`
-	Accountability  string   `json:"accountability,omitempty" jsonschema:"Accountability code, e.g. FDC or an airport id."`
-	FreeText        string   `json:"free_text,omitempty" jsonschema:"Free-text search, evaluated by the API."`
-	NotamNumber     string   `json:"notam_number,omitempty" jsonschema:"NOTAM number, e.g. 08/224 or A4429/26. Needs locations or accountability."`
-	Limit           *int     `json:"limit,omitempty" jsonschema:"Optional. Return at most this many items. There is no default cap; if you set one and items are omitted, the response says how many (RESULT_TRUNCATED) and is not complete."`
-	IncludeGeometry *bool    `json:"include_geometry,omitempty" jsonschema:"Optional, default true. Set false to leave geometry out of each item to make the response much smaller; the response lists geometry under omitted_fields."`
-}
 
 // maxLocations bounds how many identifiers one call may ask for.
 const maxLocations = 10
@@ -49,13 +27,6 @@ const (
 const centersNotInferred = "Only en-route centers that the FAA lists on the NOTAMs of the given locations are added. " +
 	"Centers between those locations are not inferred: if the flight passes through others, list them."
 
-type notamData struct {
-	Filters       Filters        `json:"filters"`
-	Locations     *locationsInfo `json:"locations,omitempty"`
-	OmittedFields []string       `json:"omitted_fields"`
-	NOTAMs        []model.Notam  `json:"notams"`
-}
-
 // locationsInfo says which identifiers were asked for and why.
 type locationsInfo struct {
 	Requested []string      `json:"requested"`
@@ -69,23 +40,6 @@ type addedCenter struct {
 	Location string   `json:"location"`
 	ListedOn []string `json:"listed_on"` // requested locations whose NOTAMs name it
 	Refs     []string `json:"refs"`      // some of those NOTAMs
-}
-
-func registerNotams(srv *mcp.Server, d Deps) {
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "get_notams",
-		Annotations: readOnly("NOTAMs from the FAA NOTAM Management Service"),
-		Description: d.describe("Returns NOTAMs from the FAA NOTAM Management Service (NMS-API), including FDC NOTAMs. " +
-			"You must give at least one filter: usually locations (airports and en-route centers, e.g. departure, destination and alternates), or a latitude/longitude/radius_nm point, an effective window, or others. " +
-			"The filters are applied by the FAA's API, not by this server, and the response lists exactly which. " +
-			"For a flight, list the airports; the en-route center the FAA lists on their NOTAMs is added unless add_centers is false, and is named in the response. Centers between them are not inferred. " +
-			"A radius search matches each NOTAM's reference point, not its area, so it is not an area filter. " +
-			"Each NOTAM carries its full text as published in raw_text: the ICAO rendering (raw_format icao_notam) when the FAA supplied one, else the US domestic one (us_notam, which the FAA calls LOCAL_FORMAT); any other rendering is in translations, so each appears once; the published fields, and canonical GeoJSON geometry where one is published (positions are [longitude, latitude]; a point with a radius is translated to a slightly larger circle polygon, with the original circle in geometry_derivation). " +
-			"Results can be large (an airport can have hundreds of NOTAMs); nothing is ranked, summarized or dropped. The same TFR or restriction can appear twice, as an FDC NOTAM and in its international (ICAO) form; both are returned. " +
-			"NOTAMs for temporary flight restrictions appear here as FDC NOTAMs with their text and dates, but the FAA's TFR outlines are not available from this source, so geometry for them may be missing or only a point. " + reliance),
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in NotamsInput) (*mcp.CallToolResult, any, error) {
-		return notamsHandler(ctx, d, in)
-	})
 }
 
 // fetch is one query to the FAA and its outcome.
@@ -104,82 +58,9 @@ func (f fetch) sourceID() string {
 	return nms.SourceID + ":" + f.location
 }
 
-func notamsHandler(ctx context.Context, d Deps, in NotamsInput) (*mcp.CallToolResult, any, error) {
-	base := nms.Query{
-		Latitude: in.Latitude, Longitude: in.Longitude, RadiusNM: in.RadiusNM,
-		Classification: strings.TrimSpace(in.Classification), Feature: strings.TrimSpace(in.Feature),
-		Accountability: strings.TrimSpace(in.Accountability), FreeText: strings.TrimSpace(in.FreeText), NotamNumber: strings.TrimSpace(in.NotamNumber),
-	}
-	if err := checkLimit(in.Limit); err != nil {
-		return toolError("%v", err)
-	}
-	var err error
-	if base.EffectiveStart, err = parseTime("effective_start", in.EffectiveStart); err != nil {
-		return toolError("%v", err)
-	}
-	if base.EffectiveEnd, err = parseTime("effective_end", in.EffectiveEnd); err != nil {
-		return toolError("%v", err)
-	}
-	if base.LastUpdated, err = parseTime("last_updated", in.LastUpdated); err != nil {
-		return toolError("%v", err)
-	}
-	locs, err := cleanLocations(in.Locations)
-	if err != nil {
-		return toolError("%v", err)
-	}
-	if len(locs) == 0 {
-		locs = []string{""} // one query, with no location
-	}
-	for _, l := range locs {
-		q := base
-		q.Location = l
-		if err := q.Validate(); err != nil {
-			return toolError("%v", err) // the request itself is wrong; the agent can fix it
-		}
-	}
-
-	res, err := collectNotams(ctx, d, base, locs, in.AddCenters == nil || *in.AddCenters)
-	if err != nil {
-		return toolError("%v", err)
-	}
-	now := d.Now().UTC()
-	data := notamData{Filters: newFilters(), Locations: res.Locations, NOTAMs: res.NOTAMs, OmittedFields: []string{}}
-	if res.Applied != nil {
-		data.Filters.AppliedBySource = res.Applied
-	}
-	issues, sources := res.Issues, res.Sources
-
-	// The caller's explicit shaping choices.
-	if in.Limit != nil && len(data.NOTAMs) > *in.Limit {
-		issues = append(issues, truncationIssue(len(data.NOTAMs), *in.Limit))
-		data.NOTAMs = data.NOTAMs[:*in.Limit]
-		// Per-source counts reflect what is actually in the response.
-		returned := map[string]int{}
-		for _, n := range data.NOTAMs {
-			for _, l := range n.ReturnedFor {
-				returned[l]++
-			}
-		}
-		for i := range sources {
-			if sources[i].ID == nms.SourceID {
-				sources[i].RecordsReturned = len(data.NOTAMs)
-			} else {
-				sources[i].RecordsReturned = returned[strings.TrimPrefix(sources[i].ID, nms.SourceID+":")]
-			}
-		}
-	}
-	if in.IncludeGeometry != nil && !*in.IncludeGeometry {
-		for i := range data.NOTAMs {
-			data.NOTAMs[i].Geometry, data.NOTAMs[i].GeometryDerivation = nil, nil
-		}
-		data.OmittedFields = append(data.OmittedFields, "geometry")
-	}
-	return respond(d, data, now, sources, res.NotConsulted, issues, res.Failed == res.Queries)
-}
-
 // notamResult is what collectNotams gathered: the merged NOTAMs and everything
-// the provenance envelope needs. It applies no caller shaping (limit,
-// geometry); callers do that on NOTAMs and then fix RecordsReturned.
+// the provenance envelope needs. It applies no caller shaping (such as
+// leaving out geometry); callers do that on NOTAMs.
 type notamResult struct {
 	NOTAMs       []model.Notam     // merged in query order, each NOTAM once, ReturnedFor set
 	Locations    *locationsInfo    // nil when the call used no locations
@@ -304,28 +185,6 @@ func run(ctx context.Context, c *nms.Client, base nms.Query, locs []string) []fe
 		out[i] = fetch{location: locs[i], snap: snap, err: err}
 	})
 	return out
-}
-
-// cleanLocations trims, drops exact duplicates (ignoring case) and bounds the
-// list. It does not rewrite identifiers: the FAA decides what each one means.
-func cleanLocations(in []string) ([]string, error) {
-	var out []string
-	seen := map[string]bool{}
-	for _, l := range in {
-		l = strings.TrimSpace(l)
-		if l == "" {
-			return nil, errors.New("locations must not contain an empty identifier")
-		}
-		if seen[strings.ToUpper(l)] {
-			continue
-		}
-		seen[strings.ToUpper(l)] = true
-		out = append(out, l)
-	}
-	if len(out) > maxLocations {
-		return nil, fmt.Errorf("at most %d locations per call (got %d); split the request", maxLocations, len(out))
-	}
-	return out, nil
 }
 
 // centerKey makes the two spellings of a US en-route center the FAA uses

@@ -109,10 +109,10 @@ func TestEndToEndOverHTTP(t *testing.T) {
 	}
 	defer cs.Close()
 	tools, err := cs.ListTools(ctx, nil)
-	if err != nil || len(tools.Tools) != 4 {
+	if err != nil || len(tools.Tools) != 2 {
 		t.Fatalf("tools = %v err=%v", tools, err)
 	}
-	res, r := call(t, cs, "get_weather_advisories", map[string]any{"kinds": []string{"CWA"}})
+	res, r := call(t, cs, "get_flight_briefing_data", map[string]any{"airports": []string{"KSMO"}, "include": []string{"cwas"}})
 	if res.IsError || len(r.Provenance.Sources) != 1 || r.Disclaimer == "" {
 		t.Errorf("isError=%v %+v", res.IsError, r.Provenance.Sources)
 	}

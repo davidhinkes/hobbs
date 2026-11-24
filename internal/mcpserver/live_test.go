@@ -51,22 +51,23 @@ func TestLiveStdio(t *testing.T) {
 		b, _ := json.Marshal(res.StructuredContent)
 		var r reply
 		json.Unmarshal(b, &r)
-		var d struct {
-			Advisories []json.RawMessage `json:"advisories"`
-			NOTAMs     []json.RawMessage `json:"notams"`
-		}
+		var d map[string]json.RawMessage
 		json.Unmarshal(r.Data, &d)
-		t.Logf("%s %v -> isError=%v status=%s advisories=%d notams=%d sources=%d bytes=%d", name, args, res.IsError, r.Completeness.Status, len(d.Advisories), len(d.NOTAMs), len(r.Provenance.Sources), len(b))
+		counts := map[string]int{}
+		for _, k := range []string{"notams", "metars", "tafs", "sigmets", "airmets", "intl_sigmets", "cwas"} {
+			var items []json.RawMessage
+			if json.Unmarshal(d[k], &items) == nil && items != nil {
+				counts[k] = len(items)
+			}
+		}
+		t.Logf("%s %v -> isError=%v status=%s counts=%v sources=%d bytes=%d", name, args, res.IsError, r.Completeness.Status, counts, len(r.Provenance.Sources), len(b))
 		for _, i := range r.Completeness.Issues {
 			t.Logf("    [%s] %s %s", i.Severity, i.Code, i.Source)
 		}
 	}
 	summarize("source_status", nil)
-	summarize("get_weather_advisories", nil)
-	summarize("get_weather_advisories", map[string]any{"kinds": []string{"AIRMET"}, "hazard": "TURB-HI"})
-	summarize("get_notams", map[string]any{"locations": []string{"KSMO", "KEMT"}, "include_geometry": false})
-	summarize("get_notams", map[string]any{"latitude": 38.95, "longitude": -77.45, "radius_nm": 10.0})
-	summarize("get_notams", map[string]any{"latitude": 38.95, "longitude": -77.45, "radius_nm": 10.0, "include_geometry": false})
-	summarize("get_notams", map[string]any{"latitude": 38.95, "longitude": -77.45, "radius_nm": 10.0, "include_geometry": false, "limit": 50})
-	summarize("get_notams", map[string]any{"locations": []string{"KIAD"}, "classification": "DOM"}) // a correctable mistake
+	summarize("get_flight_briefing_data", map[string]any{"airports": []string{"KSMO", "KEMT"}})
+	summarize("get_flight_briefing_data", map[string]any{"airports": []string{"KSMO", "KEMT"}, "include_geometry": true})
+	summarize("get_flight_briefing_data", map[string]any{"airports": []string{"KSMO"}, "include": []string{"metars", "tafs"}})
+	summarize("get_flight_briefing_data", map[string]any{"airports": []string{"SMO"}}) // a correctable mistake
 }
