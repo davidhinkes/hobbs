@@ -1,6 +1,6 @@
 // Package mcpserver exposes the data layer as MCP tools.
 //
-// Governing rule (docs/DESIGN.md §0): this layer makes the sources' data
+// Governing rule (docs/DESIGN.md §2): this layer makes the sources' data
 // available, uniformly and honestly. It does not decide what is relevant or
 // applicable. Every response is a provenance envelope; every filter is either
 // forwarded to the source or named as applied by this server.

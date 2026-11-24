@@ -2,7 +2,7 @@
 // (aviationweather.gov/api/data): SIGMET, G-AIRMET, international SIGMET and
 // Center Weather Advisories.
 //
-// Behavior here is based on observed responses (docs/SPIKE.md):
+// Behavior here is based on observed responses (docs/DESIGN.md §5.5):
 //   - "no results" is HTTP 204 with an empty body; 400 is a bad parameter.
 //   - upstream filters are unreliable, so whole feeds are fetched and
 //     filtering is left to the caller.

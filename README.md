@@ -4,7 +4,7 @@ An MCP server that makes official US aviation data available to AI agents: NOAA 
 
 **Provided as is, with no warranty or guarantee.** It is a best-effort copy of data from the sources listed in each response and may be incomplete, delayed or wrong. It is not FAA or NWS data as published and is not endorsed by either. It is advisory only and not an official briefing: consult official sources before flight.
 
-The server only makes data available (uniform, consistent, available). It does not decide what is relevant to a flight; see `docs/DESIGN.md` §0.
+The server only makes data available (uniform, consistent, available). It does not decide what is relevant to a flight; see `docs/DESIGN.md` §2.
 
 **Hosted:** `https://hobbs.up.railway.app/mcp` (Streamable HTTP, open, no authentication). It serves NOTAMs from the FAA's **staging** environment, so every response says `"airworthy": false`.
 
@@ -16,7 +16,7 @@ The server only makes data available (uniform, consistent, available). It does n
 | `get_weather_advisories` | The full current SIGMET / AIRMET / international SIGMET / CWA sets |
 | `source_status` | Live health of each source |
 
-There is no TFR tool yet: no official, usable TFR source exists (`docs/SPIKE.md`). TFRs appear in `get_notams` as FDC NOTAMs (text and dates, not outlines).
+There is no TFR tool yet: no official, usable TFR source exists (`docs/DESIGN.md` §5.5). TFRs appear in `get_notams` as FDC NOTAMs (text and dates, not outlines).
 
 For a flight, list the airports; the en-route center the FAA lists on their NOTAMs is added, and centers in between are not inferred:
 
@@ -85,4 +85,4 @@ CI (`.github/workflows/ci.yml`) runs gofmt, `go vet`, the build, the offline tes
 
 The TFR adapter (`internal/source/tfr`) is kept but turned off: nothing calls it, a client refuses to fetch unless `Enabled` is set, and its live test is only built with `-tags tfrlive`.
 
-Design and the decisions log: `docs/DESIGN.md` (§8). What the upstream services actually do: `docs/SPIKE.md`. Working notes for Claude Code sessions: `CLAUDE.md`.
+Design: `docs/DESIGN.md`: principles, product requirements and user flows, a high-level design with a diagram, the detailed design (including how the upstream services behave), open items, and the decisions log with alternatives considered. Working notes for Claude Code sessions: `CLAUDE.md`.
