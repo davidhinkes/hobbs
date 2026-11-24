@@ -4,7 +4,7 @@ An MCP server (Go) that makes official US aviation data available to AI agents: 
 
 ## Read first
 
-- `docs/DESIGN.md` **§0** (the mantra and what this layer must not do) and **§8** (the decisions log). Do not reopen a logged decision without the maintainer.
+- `docs/DESIGN.md` **§0** (the mantra and what this layer must not do) and **§8** (the decisions log, with the alternatives already considered). Do not reopen a logged decision, or re-propose a rejected alternative, without the maintainer.
 - `docs/DESIGN.md` §7 for open items; `docs/SPIKE.md` for what the upstream services were observed to do.
 
 ## The rules that matter most
@@ -15,7 +15,7 @@ An MCP server (Go) that makes official US aviation data available to AI agents: 
 
   Update them in the same commit or PR as the change. Write for a reader with no chat history: state facts, decisions and reasons, never "as discussed". Date decisions and observations. When something is superseded, fix or mark it, so no two docs contradict each other. Where each kind of thing goes:
   - `README.md`: what it is, the tools, how to run, host and develop it;
-  - `docs/DESIGN.md`: how it behaves and why; §7 open items, §8 decisions;
+  - `docs/DESIGN.md`: how it behaves and why; §7 open items; §8 the decisions log, where every decision gets its date, its reason and **the alternatives considered and why they lost**, added when the decision is made;
   - `docs/SPIKE.md`: what the upstream services were observed to do;
   - `CLAUDE.md`: how to work here;
   - the tool descriptions and package comments in the code: what each part does.
