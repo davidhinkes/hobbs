@@ -45,15 +45,17 @@ type upstreams struct {
 	notamQueries   []map[string]string // every query, in arrival order
 	lastNotamHdr   http.Header
 	awcCalls       map[string]int
+	awcQueries     map[string]string // path -> raw query string of the last request
 }
 
 func newUpstreams(t *testing.T) *upstreams {
 	t.Helper()
-	u := &upstreams{awcFail: map[string]int{}, nmsFailFor: map[string]int{}, nmsBodyFor: map[string][]byte{}, lastNotamQuery: map[string]string{}, awcCalls: map[string]int{}}
-	files := map[string]string{"/airsigmet": "airsigmet.json", "/gairmet": "gairmet.json", "/isigmet": "isigmet.json", "/cwa": "cwa.json"}
+	u := &upstreams{awcFail: map[string]int{}, nmsFailFor: map[string]int{}, nmsBodyFor: map[string][]byte{}, lastNotamQuery: map[string]string{}, awcCalls: map[string]int{}, awcQueries: map[string]string{}}
+	files := map[string]string{"/airsigmet": "airsigmet.json", "/gairmet": "gairmet.json", "/isigmet": "isigmet.json", "/cwa": "cwa.json", "/metar": "metar.json", "/taf": "taf.json"}
 	u.awcSrv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u.mu.Lock()
 		u.awcCalls[r.URL.Path]++
+		u.awcQueries[r.URL.Path] = r.URL.RawQuery
 		fail := u.awcFail[r.URL.Path]
 		u.mu.Unlock()
 		if fail != 0 {
@@ -216,7 +218,7 @@ func TestToolsAreListedWithTheContractInTheirDescriptions(t *testing.T) {
 	for _, tl := range res.Tools {
 		got[tl.Name] = tl
 	}
-	for _, name := range []string{"get_weather_advisories", "get_notams", "source_status"} {
+	for _, name := range []string{"get_weather_advisories", "get_notams", "source_status", "get_flight_briefing_data"} {
 		tl := got[name]
 		if tl == nil {
 			t.Fatalf("missing tool %s (have %v)", name, got)
@@ -230,8 +232,8 @@ func TestToolsAreListedWithTheContractInTheirDescriptions(t *testing.T) {
 			t.Errorf("%s must be annotated read-only", name)
 		}
 	}
-	if len(got) != 3 {
-		t.Errorf("tools = %d, want exactly 3 (no TFR tool, no route tool)", len(got))
+	if len(got) != 4 {
+		t.Errorf("tools = %d, want exactly 4 (no TFR tool, no route tool)", len(got))
 	}
 	// The NOTAM tool's description must warn about staging data and TFR limits.
 	d := got["get_notams"].Description

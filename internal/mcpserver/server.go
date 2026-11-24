@@ -90,6 +90,7 @@ func New(d Deps) (*mcp.Server, error) {
 	registerWeather(srv, d)
 	registerNotams(srv, d)
 	registerStatus(srv, d)
+	registerBriefing(srv, d)
 	return srv, nil
 }
 

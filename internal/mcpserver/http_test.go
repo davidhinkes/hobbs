@@ -109,7 +109,7 @@ func TestEndToEndOverHTTP(t *testing.T) {
 	}
 	defer cs.Close()
 	tools, err := cs.ListTools(ctx, nil)
-	if err != nil || len(tools.Tools) != 3 {
+	if err != nil || len(tools.Tools) != 4 {
 		t.Fatalf("tools = %v err=%v", tools, err)
 	}
 	res, r := call(t, cs, "get_weather_advisories", map[string]any{"kinds": []string{"CWA"}})
