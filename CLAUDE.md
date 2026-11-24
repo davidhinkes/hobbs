@@ -19,7 +19,7 @@ An MCP server (Go) that makes official US aviation data available to AI agents: 
   - `CLAUDE.md`: how to work here;
   - the tool descriptions and package comments in the code: what each part does.
 
-  Keep all of these consistent with each other.
+  Keep all of these consistent with each other. Draw diagrams in Mermaid (a `mermaid` code block, which GitHub renders), not ASCII art, so they stay readable and editable as text.
 - **This layer makes the data available: uniform, consistent, available.** No relevance, ranking, summarizing, route or area intersection, "applies" or "active now" logic. That belongs in higher layers. Ask: if our logic is wrong, does the failure show (extra data, a flag) or hide (a missing record)? Only showing is acceptable.
 - **Every response carries provenance** (sources, retrieval times, every data-pull problem) through `respond` / `provenance.New`. Never say "none" unless `completeness.status` is `complete`.
 - **Filter only with the source's own filters**, and say who applied each one (`applied_by_source` / `applied_by_server`).
