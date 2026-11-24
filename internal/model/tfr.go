@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -43,12 +44,15 @@ type TFR struct {
 	// described by RawText.
 	Areas []TFRArea `json:"areas,omitempty"`
 
-	// RawText is the NOTAM text as published (the "USNS" rendering when
-	// present). RawFormat says what it holds. Translations lists every text
-	// rendering supplied.
-	RawText      string        `json:"raw_text"`
-	RawFormat    RawFormat     `json:"raw_format"`
-	Translations []Translation `json:"translations,omitempty"`
+	// RawText is the NOTAM text as published, unaltered (the US domestic
+	// "USNS" rendering when present); RawFormat is then us_notam. Translations
+	// lists the other renderings supplied, so each appears exactly once.
+	// SourceRecord is the feed's own record when there is no text or the
+	// detail could not be retrieved or parsed.
+	RawText      string          `json:"raw_text,omitempty"`
+	RawFormat    RawFormat       `json:"raw_format,omitempty"`
+	Translations []Translation   `json:"translations,omitempty"`
+	SourceRecord json.RawMessage `json:"source_record,omitempty"`
 
 	// Details holds published contact and facility fields with no normalized home.
 	Details map[string]string `json:"details,omitempty"`
@@ -95,12 +99,11 @@ func (t TFR) Validate() error {
 	switch {
 	case t.ID == "":
 		return errors.New("tfr: id is required")
-	case t.RawText == "":
-		return fmt.Errorf("tfr %s: raw_text is required", t.ID)
-	case t.RawFormat != RawOfficialText && t.RawFormat != RawUpstreamJSON:
-		return fmt.Errorf("tfr %s: invalid raw_format %q", t.ID, t.RawFormat)
 	case t.Effective != nil && t.Expire != nil && t.Expire.Before(*t.Effective):
 		return fmt.Errorf("tfr %s: expire before effective", t.ID)
+	}
+	if err := validateText("tfr", t.ID, t.RawText, t.RawFormat, []RawFormat{RawUSNotam}, t.SourceRecord); err != nil {
+		return err
 	}
 	for i, a := range t.Areas {
 		for _, alt := range []Altitude{a.Lower, a.Upper} {

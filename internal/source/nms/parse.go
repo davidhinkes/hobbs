@@ -416,8 +416,12 @@ func parseFeature(raw json.RawMessage) (model.Notam, *note) {
 		a.Geometry, a.GeometryDerivation = circleGeometry(*qCenter, radius, n)
 	}
 
-	// Raw text: ICAO rendering preferred, local otherwise; all kept.
-	var icao, local string
+	// Text: the ICAO rendering goes in RawText when there is one, else the US
+	// domestic one; Translations keeps every other rendering, so each appears
+	// once and none is lost. Formats we recognize get our names (icao_notam,
+	// us_notam); any other keeps the FAA's label and is only in Translations.
+	var all []model.Translation
+	icao, local := -1, -1
 	for _, t := range f.Properties.Core.Translation {
 		text := string(t.FormattedText)
 		if text == "" {
@@ -426,24 +430,36 @@ func parseFeature(raw json.RawMessage) (model.Notam, *note) {
 		if text == "" {
 			continue
 		}
-		a.Translations = append(a.Translations, model.Translation{Format: string(t.Type), Text: text})
-		switch strings.ToUpper(string(t.Type)) {
+		format := string(t.Type)
+		switch strings.ToUpper(format) {
 		case "ICAO":
-			icao = text
+			format = string(model.RawICAONotam)
+			if icao < 0 {
+				icao = len(all)
+			}
 		case "LOCAL_FORMAT":
-			local = text
+			format = string(model.RawUSNotam)
+			if local < 0 {
+				local = len(all)
+			}
 		}
+		all = append(all, model.Translation{Format: format, Text: text})
 	}
-	switch {
-	case icao != "":
-		a.RawText, a.RawFormat = icao, model.RawOfficialText
-	case local != "":
-		a.RawText, a.RawFormat = local, model.RawOfficialText
-	case len(a.Translations) > 0:
-		a.RawText, a.RawFormat = a.Translations[0].Text, model.RawOfficialText
-	default:
-		a.RawText, a.RawFormat = string(raw), model.RawUpstreamJSON
-		n.Add("no NOTAM text rendering supplied; upstream record kept verbatim")
+	primary := icao
+	if primary < 0 {
+		primary = local
+	}
+	if primary >= 0 {
+		a.RawText, a.RawFormat = all[primary].Text, model.RawFormat(all[primary].Format)
+		a.Translations = model.Others(all, primary)
+	} else {
+		a.Translations = all
+		a.SourceRecord = model.SourceRecord(raw)
+		if len(all) > 0 {
+			n.Add("text supplied only in unrecognized formats; kept in translations, upstream record in source_record")
+		} else {
+			n.Add("no NOTAM text supplied; upstream record kept in source_record")
+		}
 	}
 	return a, n
 }

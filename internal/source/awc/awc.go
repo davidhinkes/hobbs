@@ -167,12 +167,16 @@ func (f *feed) Fetch(ctx context.Context) (source.Snapshot[model.Advisory], erro
 			a = model.Advisory{
 				ID: fmt.Sprintf("%s#%d", f.id, i), Kind: f.kind, Source: f.id,
 				Lower: model.Unknown(), Upper: model.Unknown(),
-				RawText: string(raw), RawFormat: model.RawUpstreamJSON,
+				SourceRecord: model.SourceRecord(raw),
 			}
 		}
 		if a.RawText == "" {
-			a.RawText, a.RawFormat = string(raw), model.RawUpstreamJSON
-			n.Add("official text missing; upstream record kept verbatim")
+			// No published text (an empty field leaves no format either).
+			a.RawFormat = ""
+			if len(a.SourceRecord) == 0 {
+				a.SourceRecord = model.SourceRecord(raw)
+				n.Add("official text missing; upstream record kept in source_record")
+			}
 		}
 		if c := seen[a.ID]; c > 0 {
 			seen[a.ID]++

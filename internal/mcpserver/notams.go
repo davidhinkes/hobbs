@@ -80,7 +80,7 @@ func registerNotams(srv *mcp.Server, d Deps) {
 			"The filters are applied by the FAA's API, not by this server, and the response lists exactly which. " +
 			"For a flight, list the airports; the en-route center the FAA lists on their NOTAMs is added unless add_centers is false, and is named in the response. Centers between them are not inferred. " +
 			"A radius search matches each NOTAM's reference point, not its area, so it is not an area filter. " +
-			"Each NOTAM carries its raw text in every rendering the FAA supplied (ICAO and local format), the published fields, and canonical GeoJSON geometry where one is published (positions are [longitude, latitude]; a point with a radius is translated to a slightly larger circle polygon, with the original circle in geometry_derivation). " +
+			"Each NOTAM carries its full text as published in raw_text: the ICAO rendering (raw_format icao_notam) when the FAA supplied one, else the US domestic one (us_notam, which the FAA calls LOCAL_FORMAT); any other rendering is in translations, so each appears once; the published fields, and canonical GeoJSON geometry where one is published (positions are [longitude, latitude]; a point with a radius is translated to a slightly larger circle polygon, with the original circle in geometry_derivation). " +
 			"Results can be large (an airport can have hundreds of NOTAMs); nothing is ranked, summarized or dropped. The same TFR or restriction can appear twice, as an FDC NOTAM and in its international (ICAO) form; both are returned. " +
 			"NOTAMs for temporary flight restrictions appear here as FDC NOTAMs with their text and dates, but the FAA's TFR outlines are not available from this source, so geometry for them may be missing or only a point. " + reliance),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in NotamsInput) (*mcp.CallToolResult, any, error) {
@@ -340,10 +340,11 @@ func impliedCenters(fetches []fetch, requested []string) ([]addedCenter, []prove
 }
 
 // notamKey identifies a NOTAM across queries: the source's unique id when it
-// has one, else the number, location and text together.
+// has one, else the number, location, text and source record together (a
+// stub's id is only its position in one query, so it must not be the key).
 func notamKey(n model.Notam) string {
 	if n.NMSID != "" {
 		return n.NMSID
 	}
-	return n.ID + "|" + n.Location + "|" + n.RawText
+	return n.ID + "|" + n.Location + "|" + n.RawText + "|" + string(n.SourceRecord)
 }

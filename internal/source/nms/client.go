@@ -400,7 +400,7 @@ func (c *Client) build(snap *source.Snapshot[model.Notam], feats []json.RawMessa
 			if len(n.Issues) == 0 {
 				n.Add("record has no identifier")
 			}
-			a = model.Notam{ID: fmt.Sprintf("%s#%d", SourceID, i), RawText: string(raw), RawFormat: model.RawUpstreamJSON,
+			a = model.Notam{ID: fmt.Sprintf("%s#%d", SourceID, i), SourceRecord: model.SourceRecord(raw),
 				Lower: model.Unknown(), Upper: model.Unknown()}
 		}
 		a.ParseIssues = n.Issues
@@ -422,7 +422,7 @@ func (c *Client) build(snap *source.Snapshot[model.Notam], feats []json.RawMessa
 		if err := a.Validate(); err != nil {
 			// A record that cannot satisfy the model is kept as a flagged stub
 			// of the upstream JSON rather than dropped.
-			a = model.Notam{ID: fmt.Sprintf("%s#%d", SourceID, i), RawText: string(raw), RawFormat: model.RawUpstreamJSON,
+			a = model.Notam{ID: fmt.Sprintf("%s#%d", SourceID, i), SourceRecord: model.SourceRecord(raw),
 				Lower: model.Unknown(), Upper: model.Unknown(),
 				ParseIssues: append(n.Issues, "record failed validation: "+err.Error())}
 			parseFail = append(parseFail, a.ID)

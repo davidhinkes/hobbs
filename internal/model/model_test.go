@@ -45,7 +45,7 @@ func TestUnknownAltitudeIsNotZero(t *testing.T) {
 }
 
 func valid() Notam {
-	return Notam{ID: "FDC 6/9306", RawText: "!FDC 6/9306 ...", RawFormat: RawOfficialText, Lower: AGL(0), Upper: MSL(4000),
+	return Notam{ID: "FDC 6/9306", RawText: "!FDC 6/9306 ...", RawFormat: RawUSNotam, Lower: AGL(0), Upper: MSL(4000),
 		EffectiveFrom: tp(t0), EffectiveTo: tp(t1)}
 }
 
@@ -54,12 +54,14 @@ func TestNotamValidate(t *testing.T) {
 		t.Fatal(err)
 	}
 	cases := map[string]func(*Notam){
-		"no id":             func(n *Notam) { n.ID = "" },
-		"no raw text":       func(n *Notam) { n.RawText = "" },
-		"to before from":    func(n *Notam) { n.EffectiveTo = tp(t0.Add(-time.Hour)) },
-		"permanent with to": func(n *Notam) { n.Permanent = true },
-		"bad altitude":      func(n *Notam) { n.Lower = Altitude{Datum: DatumMSL} },
-		"zero-value alt":    func(n *Notam) { n.Upper = Altitude{} },
+		"no id":              func(n *Notam) { n.ID = "" },
+		"no text, no record": func(n *Notam) { n.RawText, n.RawFormat = "", "" },
+		"advisory format":    func(n *Notam) { n.RawFormat = RawAdvisoryText },
+		"format, no text":    func(n *Notam) { n.RawText, n.SourceRecord = "", []byte(`{}`) },
+		"to before from":     func(n *Notam) { n.EffectiveTo = tp(t0.Add(-time.Hour)) },
+		"permanent with to":  func(n *Notam) { n.Permanent = true },
+		"bad altitude":       func(n *Notam) { n.Lower = Altitude{Datum: DatumMSL} },
+		"zero-value alt":     func(n *Notam) { n.Upper = Altitude{} },
 	}
 	for name, mut := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -69,5 +71,34 @@ func TestNotamValidate(t *testing.T) {
 				t.Error("expected error")
 			}
 		})
+	}
+	stub := valid()
+	stub.RawText, stub.RawFormat, stub.SourceRecord = "", "", []byte(`{"id":"x"}`)
+	if err := stub.Validate(); err != nil {
+		t.Errorf("source record only: %v", err)
+	}
+}
+
+func TestSourceRecord(t *testing.T) {
+	if got := string(SourceRecord([]byte(`{"a":1}`))); got != `{"a":1}` {
+		t.Errorf("valid JSON = %s, want it unchanged", got)
+	}
+	got := SourceRecord([]byte("{garbage"))
+	var s string
+	if err := json.Unmarshal(got, &s); err != nil || s != "{garbage" {
+		t.Errorf("invalid JSON = %s, want it kept as a JSON string", got)
+	}
+}
+
+func TestOthers(t *testing.T) {
+	all := []Translation{{Format: "LOCAL_FORMAT", Text: "L"}, {Format: "ICAO", Text: "I"}}
+	if got := Others(all, 1); len(got) != 1 || got[0].Format != "LOCAL_FORMAT" {
+		t.Errorf("Others(all, 1) = %v", got)
+	}
+	if got := Others(all[:1], 0); got != nil {
+		t.Errorf("Others of one = %v, want nil", got)
+	}
+	if len(all) != 2 || all[1].Format != "ICAO" {
+		t.Errorf("Others modified its input: %v", all)
 	}
 }

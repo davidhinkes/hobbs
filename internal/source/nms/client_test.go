@@ -121,8 +121,8 @@ func TestQueryParsesSampleAndSendsRequiredHeaders(t *testing.T) {
 		if err := a.Validate(); err != nil {
 			t.Errorf("%s: %v", a.ID, err)
 		}
-		if a.RawText == "" {
-			t.Errorf("%s: raw text lost", a.ID)
+		if a.RawText == "" || a.SourceRecord != nil {
+			t.Errorf("%s: raw text lost, or source_record set on a record with text", a.ID)
 		}
 	}
 	if _, err := provenance.New(snap.Items, fixedNow, []provenance.Source{snap.Source}, nil, snap.Issues); err != nil {
@@ -225,27 +225,35 @@ func TestSampleRecordSemantics(t *testing.T) {
 		}
 	}
 
-	// Text: ICAO preferred; every rendering kept; single-translation records kept.
-	for _, a := range it {
-		if len(a.Translations) == 0 {
-			t.Errorf("%s: no translations", a.ID)
-		}
-	}
+	// Text: ICAO preferred in RawText (icao_notam), else US domestic
+	// (us_notam); every other rendering in Translations; each exactly once.
 	icaoOnly := byNumber(t, it, "A5801/26")
-	if !strings.Contains(icaoOnly.RawText, "NOTAM") || len(icaoOnly.Translations) != 1 {
-		t.Errorf("icao-only: %q %v", icaoOnly.RawText, icaoOnly.Translations)
+	if !strings.Contains(icaoOnly.RawText, "NOTAM") || icaoOnly.RawFormat != model.RawICAONotam || len(icaoOnly.Translations) != 0 {
+		t.Errorf("icao-only: %q %q %v", icaoOnly.RawText, icaoOnly.RawFormat, icaoOnly.Translations)
 	}
 	localOnly := byNumber(t, it, "09/004")
-	if !strings.HasPrefix(localOnly.RawText, "!") || len(localOnly.Translations) != 1 {
-		t.Errorf("local-only: %q", localOnly.RawText)
+	if !strings.HasPrefix(localOnly.RawText, "!") || localOnly.RawFormat != model.RawUSNotam || len(localOnly.Translations) != 0 {
+		t.Errorf("local-only: %q %q %v", localOnly.RawText, localOnly.RawFormat, localOnly.Translations)
 	}
+	both := 0
 	for _, a := range it {
-		if len(a.Translations) == 2 && a.RawText != a.Translations[0].Text && a.RawText != a.Translations[1].Text {
-			t.Errorf("%s: RawText must be one of the renderings, unaltered", a.ID)
+		for _, tr := range a.Translations {
+			if tr.Text == a.RawText || tr.Format == string(a.RawFormat) {
+				t.Errorf("%s: translation %s duplicates raw_text", a.ID, tr.Format)
+			}
+		}
+		if len(a.Translations) == 1 {
+			both++
+			if a.RawFormat != model.RawICAONotam || a.Translations[0].Format != string(model.RawUSNotam) {
+				t.Errorf("%s: with both renderings, raw_text must be ICAO and translations the US one: %q %v", a.ID, a.RawFormat, a.Translations)
+			}
 		}
 		if a.NMSID == "" || a.Classification == "" {
 			t.Errorf("%s: missing nms id/classification", a.ID)
 		}
+	}
+	if both == 0 {
+		t.Error("fixture should include a NOTAM with both ICAO and local renderings")
 	}
 	if mil := byNumber(t, it, "M0832/26"); mil.Classification != "MIL" {
 		t.Errorf("classification = %q", mil.Classification)
@@ -355,8 +363,8 @@ func TestBadRecordsAreFlaggedNotDropped(t *testing.T) {
 	if bad.RawText != "RAW BAD1" || bad.Type != "" {
 		t.Errorf("raw text must survive and a bad type must not be kept: %+v", bad)
 	}
-	if g := byNumber(t, snap.Items, "09/002"); g.Geometry != nil || g.RawFormat != model.RawUpstreamJSON {
-		t.Errorf("open ring must not become geometry; no text -> upstream json: %+v", g)
+	if g := byNumber(t, snap.Items, "09/002"); g.Geometry != nil || g.RawText != "" || g.RawFormat != "" || !strings.Contains(string(g.SourceRecord), "NMS_BAD2") {
+		t.Errorf("open ring must not become geometry; no text -> source_record: %+v", g)
 	}
 	if g := byNumber(t, snap.Items, "09/003"); g.Geometry != nil {
 		t.Errorf("mixed point+polygon must be refused, not guessed: %+v", g.Geometry)
@@ -365,7 +373,7 @@ func TestBadRecordsAreFlaggedNotDropped(t *testing.T) {
 	for _, a := range snap.Items {
 		if strings.HasPrefix(a.ID, SourceID+"#") {
 			stubs++
-			if a.RawFormat != model.RawUpstreamJSON || len(a.ParseIssues) == 0 {
+			if len(a.SourceRecord) == 0 || a.RawText != "" || len(a.ParseIssues) == 0 {
 				t.Errorf("stub = %+v", a)
 			}
 		}
@@ -681,5 +689,30 @@ func TestPing(t *testing.T) {
 	bad, _ := NewClient(Config{Host: "http://127.0.0.1:1", ClientID: testID, ClientSecret: testSecret})
 	if _, err := bad.Ping(context.Background()); !errors.Is(err, ErrUpstream) || strings.Contains(err.Error(), testSecret) {
 		t.Errorf("unreachable ping = %v", err)
+	}
+}
+
+func TestTextOnlyInUnrecognizedFormatsIsKeptAndFlagged(t *testing.T) {
+	body := `{"status":"Success","data":{"geojson":[{"type":"Feature","properties":{"coreNOTAMData":{"notam":{"id":"NMS_P","number":"01/002","type":"N","effectiveStart":"2026-11-01T00:00:00Z","effectiveEnd":"2026-12-01T00:00:00Z","classification":"DOM"},"notamTranslation":[{"type":"PLAIN_LANGUAGE","formattedText":"RUNWAY CLOSED"}]}},"geometry":null}]}}`
+	_, c := newFake(t, []byte(body))
+	snap, err := c.Query(context.Background(), q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := byNumber(t, snap.Items, "01/002")
+	// Not in raw_text (it is not a format raw_format can name), but not lost:
+	// the rendering keeps the FAA's label in translations, the record is in
+	// source_record, and the record is flagged.
+	if a.RawText != "" || a.RawFormat != "" {
+		t.Errorf("unrecognized format must not be labelled: %q %q", a.RawText, a.RawFormat)
+	}
+	if len(a.Translations) != 1 || a.Translations[0].Format != "PLAIN_LANGUAGE" || a.Translations[0].Text != "RUNWAY CLOSED" {
+		t.Errorf("translations = %v", a.Translations)
+	}
+	if !strings.Contains(string(a.SourceRecord), "NMS_P") || len(a.ParseIssues) == 0 {
+		t.Errorf("source_record = %.40s, issues = %v", a.SourceRecord, a.ParseIssues)
+	}
+	if err := a.Validate(); err != nil {
+		t.Error(err)
 	}
 }
