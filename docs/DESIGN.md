@@ -1,18 +1,32 @@
-# Hobbs: aviation advisories MCP server — design
+# Hobbs: design
 
-Status: v1 built and hosted (2026-11-23) at `https://hobbs.up.railway.app/mcp`, serving FAA **staging** NOTAMs, so not airworthy. Evidence for source behavior is in `docs/SPIKE.md`; decisions and their reasons are in §8. §0 governs everything else in this document: when a later section appears to conflict with it, §0 wins.
+## 1. Purpose and status
 
-## 0. Mantra and boundary
+Hobbs is an MCP server that makes official US aviation data available to AI agents: NOAA Aviation Weather Center (AWC) weather advisories and FAA NOTAMs from the NOTAM Management Service (NMS-API). Every response says where its data came from, when, and what went wrong getting it.
+
+**Status (2026-11-24):** v1 is built and hosted at `https://hobbs.up.railway.app/mcp`. NOTAMs come from the FAA's **staging** environment, so the server is not airworthy (§5.6).
+
+How to read this document:
+
+- §2 **Principles** govern everything else. When a later section seems to conflict with §2, §2 wins.
+- §3 **Product requirements** says who uses the server and the flows it must support.
+- §4 **High-level design** shows the parts and how a request moves through them. §5 has the detail for each part.
+- §6 covers testing and delivery, §7 safety and trust, §8 open items.
+- §9 **Decisions log** records every decision, with the alternatives considered and why they lost.
+
+This is a living document, updated in the same change as the code it describes (see `CLAUDE.md`).
+
+## 2. Principles
 
 > **The MCP layer makes the FAA's data available to the agent. Uniform, consistent, and available.**
 
-- **Uniform:** every source comes out in the same shapes (one envelope, one NOTAM model, one advisory model, one altitude type), so an agent does not learn a new format per source.
+- **Uniform:** every source comes out in the same shapes (one envelope, one NOTAM model, one advisory model, one altitude type, one geometry form), so an agent does not learn a new format per source.
 - **Consistent:** the same inputs give the same kind of output, with stable ordering, stable identifiers and the same behavior on errors, gaps and odd data.
-- **Available:** the data is reachable when the sources are, and when it is not (or is stale, partial or from a test environment) the response says so, instead of failing quietly.
+- **Available:** the data is reachable when the sources are, and when it is not (or is partial, or from a test environment) the response says so, instead of failing quietly.
 
 This layer is the foundation. The opinionated parts of the application (what matters for a flight, what to do about it) are built **on top of it, in separate layers**, by people and agents who choose their own logic. They are deliberately not here.
 
-### What this layer may do
+### 2.1 What this layer may do
 
 Low-risk value-adds that make the data easier to consume without deciding anything for the user:
 
@@ -21,16 +35,17 @@ Low-risk value-adds that make the data easier to consume without deciding anythi
 - Forward the filters the official API supports, and say that the source applied them.
 - Report on the data itself: where it came from, how old it is, what went wrong getting it.
 
-### What this layer must not do
+### 2.2 What this layer must not do
 
 Anything where there is a decent chance we would miss something, or where logic makes a decision for the user implicitly:
 
 - Decide what is relevant, what applies to a route, a time, an altitude or an aircraft, or what is active now.
 - Rank, score, prioritize, group by importance, summarize or advise.
 - Remove, merge or hide records on the strength of our own judgment (including de-duplicating or "superseding" NOTAMs). The one merge we do is not a judgment: when several queries return the **same record** (the same FAA NMS id), it appears once. Records with different ids stay separate even when they say the same thing (an FDC NOTAM and its international copy are both returned), and cancellations are returned like any other record.
+- Filter on anything the source does not filter on itself, beyond an exact match on a field the source publishes. A wrong "this applies" costs some attention; a wrong "this doesn't apply" is a silent omission that could hide the one item that mattered.
 - Fill gaps with assumptions that change what the data says.
 
-### How to apply it
+### 2.3 How to apply them
 
 Before adding any behavior to this layer, ask:
 
@@ -41,20 +56,126 @@ Before adding any behavior to this layer, ask:
 
 When in doubt, return the data as published, flag the doubt, and leave the decision to the layer above.
 
-## 1. Provenance and honesty about data quality
+## 3. Product requirements
 
-**Every tool response, with no exceptions, states which official sources it used, when each was retrieved, and every problem with the data pull that could affect the result.** This is a hard requirement, not a feature. Users are agents, and agents read absence of evidence as evidence of absence, so the server must make that mistake impossible to make by accident.
+### 3.1 Users
 
-Rules that follow:
+- **AI agents** are the callers: an agent briefing a pilot, or a higher-layer application that decides relevance. They call the tools over MCP and read the JSON.
+- **The maintainer** (single maintainer, hobby project) runs, deploys and checks the service.
+- People reach the data only through an agent or a higher layer; the server has no user interface.
 
-1. **Official sources only.** Every upstream is an FAA/NOAA/ANSP system. No third-party aggregators. The source registry records, per upstream, the authority, URL, and whether the endpoint is *documented* or *undocumented* (e.g. `tfr.faa.gov/tfrapi/*`); undocumented status is itself reported to callers.
+US focus. International SIGMETs are included because AWC publishes them.
+
+### 3.2 User flows
+
+**F1. NOTAMs for a flight.** The agent lists the airports: departure, destination, alternates, and any it chooses to add.
+1. It calls `get_notams` with `locations: ["KSMO", "KPSP", "KTRM"]`.
+2. The server asks the FAA once per airport, then once for each en-route center (ARTCC) the FAA lists on those NOTAMs (here `ZLA`), and merges the results.
+3. The agent gets every NOTAM the FAA returned, each with its raw text, fields and geometry. `returned_for` says which identifiers returned it. `locations.added` names the centers added and why. A note says centers between the airports were not inferred.
+4. The agent decides what matters, and adds any other centers the route crosses.
+
+**F2. NOTAMs around a point, or in a time window.** The agent calls `get_notams` with `latitude`/`longitude`/`radius_nm` (up to 100 nm) or `effective_start`/`effective_end`, optionally with `classification`, `feature` and other FAA filters. It must know that a radius search matches each NOTAM's reference point, not its area (§5.5), so it is not an area filter.
+
+**F3. Weather advisories.** The agent calls `get_weather_advisories`, optionally narrowed to some `kinds` (SIGMET, AIRMET, INTL_SIGMET, CWA) and a `hazard`. It gets the full current published set, with geometry, and decides itself which advisories touch the flight's route, time and altitude.
+
+**F4. Can I trust this answer?** In every response the agent reads `completeness.status` (only `complete` means a clean pull), the `issues`, `provenance.sources` (what was fetched, when, from where) and `airworthy`. To see why something was incomplete, it calls `source_status`, which checks every source live.
+
+**F5. Connect a client.** A local client runs the binary over stdio. A remote client points at `https://hobbs.up.railway.app/mcp` (Streamable HTTP, open). Claude Code sessions on this repo load the hosted tools from `.mcp.json`.
+
+**F6. Change, deploy and verify** (maintainer). A pull request runs CI; merging to `main` runs CI again, and Railway deploys the commit only after CI passes. The maintainer checks the deployment, then calls `source_status` through the MCP connection (§6).
+
+### 3.3 Requirements
+
+| # | Requirement |
+|---|---|
+| R1 | Every response states its sources, retrieval times and every data-pull problem (§5.1). There is no response without provenance. |
+| R2 | Never present an empty result as "none" unless the pull was clean (`completeness.status` = `complete`). |
+| R3 | Official sources only (FAA, NOAA); no third-party aggregators. Undocumented endpoints are labelled as such. |
+| R4 | Filter only with the source's own filters, and say who applied each filter (`applied_by_source` / `applied_by_server`). |
+| R5 | Return everything that matched: nothing ranked, summarized or dropped, and no default result cap. A caller's own `limit` is reported. |
+| R6 | One geometry form for every shape (RFC 7946 GeoJSON); any approximation overstates, never understates (§5.4). |
+| R7 | Raw source text on every record, treated as untrusted data. |
+| R8 | Say whether the data may be used for flight (`airworthy`); false unless every source is production (§5.6). |
+| R9 | Provided as is: best effort, no warranty, not presented as FAA or NWS data (§7). |
+| R10 | Hosted, open endpoint with a global rate limit to protect upstream quotas. |
+
+Accepted consequence: responses can be large (an airport can have hundreds of NOTAMs). The failure mode is visible (too much data), not hidden (a missing item).
+
+### 3.4 Non-goals
+
+- Relevance scoring, ranking, prioritizing, summarizing or "you should care about this" guidance.
+- Route, corridor or area intersection; "active at time T"; altitude-overlap matching; labels such as "applies" or "does not apply". Agents do this themselves from the geometry and fields returned.
+- A route input, or inferring the en-route centers between airports (§9).
+- A TFR tool: no official source we can use publishes TFR outlines (§5.5).
+- Flight-planning decisions or go/no-go advice.
+
+## 4. High-level design
+
+```
+     AI agent / higher-layer app            Claude Code session (.mcp.json)
+                  │                                      │
+                  │  MCP: stdio, or Streamable HTTP POST /mcp (stateless, JSON)
+                  ▼                                      ▼
+ ┌─────────────────────────────── hobbs: one Go binary ───────────────────────────────┐
+ │ transport       stdio  │  HTTP: /mcp, /healthz, global rate limit                  │
+ │────────────────────────────────────────────────────────────────────────────────────│
+ │ tools           get_notams   get_weather_advisories   source_status                │
+ │ (mcpserver)     validate → query sources in parallel → merge → shape               │
+ │────────────────────────────────────────────────────────────────────────────────────│
+ │ respond()       provenance envelope: sources, issues, status,                      │
+ │ (provenance)    airworthy, disclaimer — one constructor for every tool             │
+ │────────────────────────────────────────────────────────────────────────────────────│
+ │ source          awc: 4 feeds        nms: OAuth2 client        tfr: off             │
+ │ adapters        parse → model (Notam, Advisory, Altitude) + geo (GeoJSON)          │
+ └────────────────────┬───────────────────────────────┬───────────────────────────────┘
+                      │ HTTPS, no key                 │ HTTPS, OAuth2 client credentials
+                      ▼                               ▼
+      NOAA Aviation Weather Center      FAA NOTAM Management Service (NMS-API)
+      aviationweather.gov/api/data      staging today; production pending
+```
+
+**The parts:**
+
+- **Transport.** stdio for a local client; Streamable HTTP for the hosted service, stateless, with a global rate limit and an open health check (§5.6).
+- **Tools** (`internal/mcpserver`). Three read-only tools. Each validates its input (bad requests are refused before anything is sent upstream), calls the source adapters, merges results and applies the caller's shaping (`limit`, `include_geometry`) (§5.2).
+- **The envelope** (`internal/provenance`). Every tool returns through one function, which builds the provenance envelope, derives the completeness status by rule and stamps `airworthy` and the disclaimer (§5.1).
+- **Source adapters** (`internal/source/...`). One per upstream. Each fetches, parses into the shared model (`internal/model`) and records data-pull problems as issues instead of dropping records. Shapes are translated into canonical GeoJSON by `internal/geo` (§5.3, §5.4, §5.5).
+- **The upstream services.** NOAA AWC (public, no key) and the FAA NMS-API (OAuth2; staging credentials today). The TFR adapter exists but is turned off and not linked into the binary.
+
+**A request, end to end** (F1):
+
+1. The agent calls `get_notams` with `locations: ["KSMO", "KPSP"]`.
+2. The tool validates the input. Anything the FAA would reject comes back at once as a correctable error.
+3. It queries the NMS-API once per location, in parallel; each query is its own provenance source (`faa.nms.notam:KSMO`).
+4. It reads the en-route center the FAA lists on those NOTAMs and queries each new one (`ZLA`).
+5. It merges the results (the same NMS id appears once, with `returned_for`), then applies `limit` and `include_geometry`.
+6. `respond()` builds the envelope: every source with retrieval time and counts, every issue, the derived status, `airworthy: false` and the disclaimer.
+
+**No cache.** Every call fetches from the source live, so `served_from` is always `live`. A cache is added only on a measured need and must keep the same provenance contract.
+
+**Delivery:**
+
+```
+  pull request ──► GitHub Actions CI ──► merge to main ──► CI on main ──► Railway build (Dockerfile) ──► hobbs.up.railway.app
+                   (gofmt, vet, build,                     (Railway waits        │
+                    tests, staticcheck,                     for it to pass)      └─ start: hobbs -http :8080 -nms-url <staging>
+                    deadcode, docker)                                               secrets: Railway service variables
+```
+
+## 5. Detailed design
+
+### 5.1 The response envelope and provenance
+
+**Every tool response, with no exceptions, states which official sources it used, when each was retrieved, and every problem with the data pull that could affect the result.** Agents read absence of evidence as evidence of absence, so the server must make that mistake impossible to make by accident.
+
+Rules:
+
+1. **Official sources only.** Each source records its authority, URL and whether its endpoint is *documented* or *undocumented*; undocumented status is reported to callers.
 2. **No response without provenance.** Handlers cannot return bare data. Every tool response goes through one function (`respond`, which calls `provenance.New`), which validates the provenance and derives the status; tests check every tool's output is a valid envelope.
-3. **Never say "none" unless it is true.** An empty result is only returned as a clean "nothing found" when `completeness.status == "complete"`. Otherwise the empty result is accompanied by the issues that make it untrustworthy.
-4. **Report what was not checked**, not only what was. Sources that were skipped, disabled, or failed appear in the response.
-5. **Degrade, don't hide.** Stale cache, partial parses and missing geometry are returned and flagged. They are never dropped or silently patched.
-6. **Raw official text is always carried alongside parsed fields**, in a separate field (`raw_text`), treated as untrusted data (see §6). Where a source publishes no text (G-AIRMETs), or a record cannot be parsed, `raw_text` holds the source's own record verbatim instead, and `raw_format` says which (`official_text` or `upstream_json`).
-
-### Response envelope
+3. **Never say "none" unless it is true.** An empty result reads as a clean "nothing found" only when `completeness.status` is `complete`.
+4. **Report what was not checked**, not only what was. Sources that were skipped, disabled or failed appear in the response.
+5. **Degrade, don't hide.** Partial parses and missing geometry are returned and flagged, never dropped or silently patched.
+6. **Raw text alongside parsed fields.** Every record has `raw_text`, treated as untrusted data (§7). Where a source publishes no text (G-AIRMETs), or a record cannot be parsed, `raw_text` holds the source's own record verbatim instead, and `raw_format` says which (`official_text` or `upstream_json`).
 
 ```jsonc
 {
@@ -79,186 +200,201 @@ Rules that follow:
     "not_consulted": [{ "id": "faa.nms.notam", "reason": "not_enabled" }]
   },
   "completeness": {
-    "status": "incomplete",                       // complete | degraded | incomplete (any not_consulted entry => incomplete)
+    "status": "incomplete",                       // complete | degraded | incomplete
     "issues": [{
       "code": "GEOMETRY_UNAVAILABLE",
       "severity": "warning",                      // info | warning | critical
-      "source": "faa.nms.notam:KIAD",            // one source per query; see §5
+      "source": "faa.nms.notam:KIAD",            // one source per query (§5.2)
       "message": "6 NOTAM(s) have no usable geometry as published",
       "refs": ["5/1156", "6/1714"]
     }]
   },
-  "airworthy": false,                             // see §5; false unless started with -airworthy on production sources
+  "airworthy": false,                             // §5.6
   "disclaimer": "Provided AS IS, no warranty. Best-effort copy; not FAA/NWS data as published; not endorsed. Advisory only."
 }
 ```
 
-`completeness.status` is derived by rule, not by hand: `incomplete` if any source needed for the query failed or was not consulted, or any `critical` issue exists; `degraded` if any `warning` exists (stale data, partial parse, missing geometry); otherwise `complete`.
+**Status is derived by rule**, not by hand: `incomplete` if any source needed for the query failed or was not consulted, or any `critical` issue exists; `degraded` if any `warning` exists; otherwise `complete`.
 
-### Issue codes
+**Issue codes:**
 
 | Code | Meaning |
 |---|---|
-| `SOURCE_UNAVAILABLE` | Upstream failed and no usable cache exists |
-| `STALE_DATA` | Served from cache older than the source's freshness policy; age reported. Not emitted today: there is no cache (§4) |
-| `UPSTREAM_ERROR` | Non-2xx, malformed body, or timeout on part of a fetch, with data still returned. Emitted only by the TFR adapter, which is off |
-| `PARSE_FAILED` | A record could not be parsed; raw text retained, record flagged, not dropped |
-| `GEOMETRY_UNAVAILABLE` | Record has no spatial extent as published (e.g. text-only security TFRs); returned without geometry |
+| `SOURCE_UNAVAILABLE` | Upstream failed and no usable data was obtained from it (critical) |
+| `STALE_DATA` | Served from cache older than the source's freshness policy. Not emitted today: there is no cache |
+| `UPSTREAM_ERROR` | Non-2xx, malformed body or timeout on part of a fetch, with data still returned. Emitted only by the TFR adapter, which is off |
+| `PARSE_FAILED` | A record could not be fully parsed; raw text kept, record flagged, not dropped |
+| `GEOMETRY_UNAVAILABLE` | Record has no spatial extent as published (e.g. text-only security NOTAMs); returned without geometry |
 | `GEOMETRY_PARTIAL` | Some shapes unresolved (e.g. navaid-relative vertices). Emitted only by the TFR adapter, which is off |
-| `GEOMETRY_NOT_AREA` | Line feature (e.g. freezing level); a line has no inside |
+| `GEOMETRY_NOT_AREA` | Line feature (e.g. freezing level); a line has no inside (info) |
 | `ALTITUDE_UNKNOWN` | Missing or ambiguous vertical limits or datum; reported as unknown, never assumed |
-| `SCHEDULE_UNEVALUABLE` | Record carries a schedule the server does not interpret; read it from the record |
-| `UPSTREAM_FILTER_IGNORED` | Upstream ignores a filter; we do not substitute our own, the full published set is returned (info). Defined but not emitted today: no tool forwards a filter the source ignores |
 | `ALTITUDE_ASSUMED` | Vertical limits had no stated datum and were read by a documented rule (AWC feet, flight level from 18,000 ft) (info) |
-| `UNDOCUMENTED_SOURCE` | Endpoint is not a documented, supported API (info). Added automatically for an undocumented source; none is in use today (only the TFR site would be) |
-| `RESULT_TRUNCATED` | Output limited; count of omitted items given |
+| `SCHEDULE_UNEVALUABLE` | Record carries a schedule the server does not interpret; read it from the record |
+| `UPSTREAM_FILTER_IGNORED` | Upstream ignores a filter; we do not substitute our own (info). Not emitted today: no tool forwards a filter the source ignores |
+| `UNDOCUMENTED_SOURCE` | Endpoint is not a documented, supported API (info). Added automatically; no undocumented source is in use today |
+| `RESULT_TRUNCATED` | The caller's `limit` omitted items; the count is given |
 | `SOURCE_NOT_ENABLED` | Source configured off (NOTAMs without `-nms-url`) |
-| `NOT_AIRWORTHY` | The server is not airworthy (§5): every response from every tool carries it, so nothing reads as complete |
+| `NOT_AIRWORTHY` | The server is not airworthy (§5.6): every response carries it, so nothing reads as complete |
 | `CENTER_NOT_IMPLIED` | `get_notams` with `locations`: no NOTAM returned for a location lists an en-route center, so none was added for it (warning) |
-| `CLOCK_SKEW` | Upstream timestamps inconsistent with our clock |
+| `CLOCK_SKEW` | An upstream timestamp is ahead of our clock (added automatically) |
 
-We make no assumptions about applicability: unknown stays unknown, and the server never decides whether something applies to a flight. See the scope rule in §2.
+### 5.2 Tools
 
-## 2. Users and scope
+Three tools, all read-only, all returning the §5.1 envelope. Input errors come back as `isError` results with a message the agent can act on, and invalid NOTAM requests never reach the FAA. A call that obtained no data at all returns `isError: true` together with the envelope; a partial failure returns the data plus a `critical` `SOURCE_UNAVAILABLE` issue and status `incomplete`.
 
-Single-maintainer hobby project. Callers are AI agents, not people. US focus; international SIGMETs included because AWC provides them. No authentication: the hosted endpoint is open, with a global rate limit.
+**`get_notams`** forwards the NMS-API's own filters: `locations`, `latitude`/`longitude`/`radius_nm` (up to 100), `effective_start`/`effective_end`, `last_updated`, `classification`, `feature`, `accountability`, `free_text`, `notam_number`. At least one filter is required. `filters.applied_by_source` lists exactly what the FAA applied; `applied_by_server` is empty. Each NOTAM has its raw text in every rendering the FAA supplied, the published fields, canonical geometry (§5.4) and `parse_issues`.
 
-### Scope: a data layer, not an advisor
+- **A flight is a list of identifiers, not a route.** `locations` takes up to 10 airports and en-route centers. The FAA is asked once per identifier, with the other filters applied to each. Results are merged; a NOTAM returned for several identifiers appears once, with `returned_for` listing them (keyed on the FAA's unique NMS id). Each query is its own provenance source (`faa.nms.notam:KSMO`), so a failed identifier makes the response `incomplete` without hiding the others.
+- **Implied centers** (`add_centers`, default true). The en-route center the FAA lists on the NOTAMs of a requested location (`affectedFir`) is also queried, and named under `locations.added` with the NOTAMs that list it. `ZLA` and `KZLA` count as the same. It is one round, never recursive. A location whose NOTAMs list no center gets a `CENTER_NOT_IMPLIED` warning. **Centers between the locations are never inferred** (§9), and every response that used `locations` says so in `locations.note`.
+- **A radius search is not an area filter.** The FAA matches each NOTAM's reference point, not its area (§5.5); the parameter description says so.
 
-The server's job is to make official aviation data **easily available and correct**. Deciding what matters for a particular flight is left to the end user and their agent.
+**`get_weather_advisories`** returns the complete current SIGMET, graphical AIRMET, international SIGMET and CWA sets from AWC. `kinds` chooses which feeds to read. `hazard` is an exact match applied by this server and declared in `applied_by_server`. Advisories come in a fixed feed order, each feed in the source's own order.
 
-**Rule (an application of §0): we only filter on what the official source itself filters on.** A wrong "this applies" costs some attention; a wrong "this doesn't apply" is a silent omission that could hide the one item that mattered. Any filter we wrote ourselves would turn our bugs into hidden gaps, so we do not write any.
+**`source_status`** checks every source live: reachable or not, latency, production versus staging, documented API or not.
 
-In scope:
-- Fetching, parsing and normalizing official data into structured form (format, not meaning), with the raw text preserved and the original source fields kept alongside any interpretation.
-- Forwarding the filters an official API supports (e.g. the NMS-API's location, point-and-radius, effective-time and classification filters) and **saying in the response that the source applied them**. The filtering is the FAA's, not ours.
-- Where the source offers no filter (AWC and the TFR feed give no usable area filter), returning the full published set, optionally narrowed only by exact match on a field the source itself publishes (today only an advisory's `hazard`).
-- Asking the source once per identifier the caller lists and merging the results, and adding the en-route center the source itself lists on those results (see §5). This only ever adds queries; it never narrows a result.
-- Being honest about gaps (§1).
+**Caller-chosen shaping, never silent:** `limit` (no default cap; omitted items give a `RESULT_TRUNCATED` warning) and `include_geometry: false` (the response lists `omitted_fields: ["geometry"]`). Both data tools describe these parameters identically (a test checks it).
 
-Non-goals:
-- Relevance scoring, ranking, prioritizing, summarizing or "you should care about this" guidance.
-- Our own route, corridor or area intersection, "active at time T" decisions, altitude-overlap matching, or any label such as "applies", "possibly applies" or "does not apply". Agents that want this do it themselves from the geometry and fields we return.
-- Suppressing records. Nothing is dropped; there is no default result cap.
-- Flight-planning decisions or go/no-go advice.
+### 5.3 Data model
 
-Consequences: responses can be large, and the failure mode is visible (too much data) instead of hidden (a missing item). Every response states which filters the source applied and which, if any, we applied (`filters.applied_by_source`, `filters.applied_by_server`), so a caller can see exactly who narrowed the result.
+All sources map into a few shared types (`internal/model`), using standard ICAO and AWC concepts so an agent does not depend on any one upstream's schema.
 
-## 3. Sources
+- **Notam:** id, type (N/R/C) and what it replaces; location and FIR (en-route center); Q-code; effective times, `permanent` and `estimated`; the schedule as published (not interpreted); lower and upper limits; geometry and its derivation; text, `raw_text` and every translation the FAA supplied; NMS id, classification, series, issue and update times; `returned_for`; `parse_issues`.
+- **Advisory:** id, kind, source feed and issuer; hazard, severity and qualifier as published; issue and validity times; limits; geometry and its derivation; `details` (source fields with no common meaning, kept as published); `raw_text`; `parse_issues`.
+- **Altitude:** `value` (feet, or the flight level number for FL) and `datum` (MSL, AGL, FL, SFC, UNL or UNKNOWN). Unknown is explicit, with no value, and never zero.
+- Times are UTC. The clock is injectable for tests. Nothing in the model decides whether something is active or applicable.
 
-| Need | Source | Access | Status |
-|---|---|---|---|
-| AIRMET (G-AIRMET), SIGMET, intl SIGMET, CWA | NOAA AWC Data API | public, no key | verified in spike |
-| TFRs | **No documented API.** Authorized route: NMS-API (TFRs are FDC NOTAMs: text and dates, but on staging only a bare point, no outlines; 41 of 47 present). `tfr.faa.gov` publishes the outlines but blocks this client with HTTP 403 | the TFR adapter is built and tested on fixtures but **dormant** (not wired into any tool) | open: ask the FAA |
-| NOTAMs (US) | FAA NOTAM Management Service API (NMS-API) | credentials by request: the FAA NMS page links "Request API Access" to 7-AWA-NAIMES@faa.gov (program questions: notams@faa.gov); staging access granted and verified (see SPIKE.md); production onboarding pending; ToS allow redistribution but not as "FAA data" | staging verified, and enabled on the hosted server (credentials confirmed working from Railway, 2026-11-23) |
+### 5.4 Geography: one representation
 
-## 4. Architecture
+Every area, point and line the server returns is **one canonical form: an RFC 7946 GeoJSON geometry**: WGS84, positions as `[longitude, latitude]` in decimal degrees, longitude in [-180, 180], latitude in [-90, 90]. The types are `Point`, `MultiPoint`, `LineString`, `Polygon` and `MultiPolygon`. Rings are closed and wound per the RFC (exterior counter-clockwise, holes clockwise).
 
-- **Go**, official MCP Go SDK (`github.com/modelcontextprotocol/go-sdk`), stdlib `net/http`, `log/slog`. Stdio for dev, Streamable HTTP for hosting.
-- **No cache to start.** Every tool call fetches from the source live. Caching, polling and a snapshot store are premature until we measure a need (upstream load, latency or rate limits). Until then `served_from` is always `live`, and the `STALE_DATA` and `SOURCE_UNAVAILABLE` machinery is simply not exercised. If we add a cache later it must keep the same provenance contract (retrieval time, age, `served_from`).
-- **Fetch whole feeds.** Upstream filters are unreliable (spike), and we do not replace them with our own. Only filters the source supports are forwarded (NMS-API); otherwise the full published set is returned.
-- **TFR adapter (off: built and tested, not wired into any tool; a client refuses to fetch unless explicitly enabled, and its live test is built only with `-tags tfrlive`):** read the TFR list, then each TFR's detail XML; normalize into the shared record model with the raw XML kept. Geometry is translated only where it is stated plainly (§4a); everything else is flagged.
-
-```
-cmd/hobbs/             main: wiring
-internal/source/awc/   AWC adapters
-internal/source/tfr/   FAA TFR adapter (turned off; not linked into the binary)
-internal/source/nms/   NMS-API NOTAM adapter
-internal/model/        Advisory, Notam, Altitude, Geometry
-internal/provenance/   Envelope, Source record, Issue codes, completeness rules
-internal/geo/          translation of shapes into canonical geometry (no intersection logic)
-internal/mcpserver/    tools, input validation, response shaping
-```
-
-Altitude is its own type: `value` (feet, or the flight level number for FL) and `datum` (MSL, AGL, FL, SFC, UNL or UNKNOWN); unknown is explicit, with no value, and never zero. Time is UTC `time.Time` with an injectable clock. The server holds no logic that decides whether something is active or applicable.
-
-## 4a. Geography: one representation
-
-Every area, point and line the server returns is **one canonical form: an RFC 7946 GeoJSON geometry** (WGS84, positions as `[longitude, latitude]` in decimal degrees, longitude in [-180, 180], latitude in [-90, 90]). The five types are `Point`, `MultiPoint`, `LineString`, `Polygon` and `MultiPolygon`. Rings are closed and wound per the RFC (exterior counter-clockwise, holes clockwise). Whatever shape a source uses, the agent sees this.
-
-Translation is deterministic, lives in `internal/geo`, and is tested with exact values. Each record carries `geometry_derivation` listing every translation applied, so the source's own shape is always recoverable.
+Translation is deterministic, lives in `internal/geo` and is tested with exact values. Each record carries `geometry_derivation`, listing every translation applied, so the source's own shape is always recoverable.
 
 | Source shape | Becomes | Derivation step |
 |---|---|---|
-| Circle (NOTAM Q-line point plus radius; later TFR circles) | `Polygon` (64-vertex geodesic on WGS84), or `MultiPolygon` across the antimeridian | `circle_to_circumscribed_polygon_64`; the circle as published is kept in `geometry_derivation.circle` |
+| Circle (NOTAM point plus radius) | `Polygon` (64-vertex geodesic on WGS84), or `MultiPolygon` across the antimeridian | `circle_to_circumscribed_polygon_64`; the circle as published is kept in `geometry_derivation.circle` |
 | Point with no radius | `Point` | none |
 | Several points (e.g. airway navaids) | `MultiPoint`, exactly as published (duplicates kept) | none |
 | Longitudes beyond ±180 (AWC) | wrapped into [-180, 180]: a ring wholly beyond is shifted by 360°, one straddling it is cut at ±180 | `antimeridian_shift`, `antimeridian_cut` |
 | Wrong winding | re-wound per the RFC | `ring_reoriented` |
 | Multi-part area (AWC `AREAS`, GeoJSON `MultiPolygon`) | `MultiPolygon` | none |
 | Zero-area part inside a multi-part area | dropped (no area is lost); never dropped if it has area | `degenerate_part_dropped` |
-| Open path with no stated type | `LineString`, flagged | none |
+| Open path with no stated type | `LineString`, flagged `GEOMETRY_NOT_AREA` | none |
 
-The deliberate bias: where translation must approximate, it **overstates**. The circle polygon is circumscribed and padded, about 0.2% larger in radius (0.01 nm on a 5 nm circle), so an error shows as slightly extra data and never as a hidden miss.
+**Where translation must approximate, it overstates.** The circle polygon is circumscribed and padded, about 0.2% larger in radius (0.01 nm on a 5 nm circle), so an error shows as slightly extra area, never as a hidden miss.
 
-Not translated, so the geometry is left empty and the record is flagged (`GEOMETRY_UNAVAILABLE` / `parse_issues`), never guessed: radius 999 (ICAO "no radius limit", i.e. a whole region, not a circle); circles near a pole (beyond 85° latitude) or over 500 nm; a polygon with holes that crosses the antimeridian; mixed point-and-polygon collections; a multi-part area with any unusable part; lines that cross the antimeridian.
+**Not translated, never guessed:** the geometry is left empty and the record flagged (`GEOMETRY_UNAVAILABLE` / `parse_issues`) for a radius of 999 (ICAO "no radius limit", i.e. a whole region, not a circle); circles near a pole (beyond 85° latitude) or over 500 nm; a polygon with holes that crosses the antimeridian; mixed point-and-polygon collections; a multi-part area with any unusable part; lines that cross the antimeridian.
 
-This is translation only. There is no intersection, containment or "does this apply" logic anywhere (§0).
+This is translation only. There is no intersection, containment or "does this apply" logic anywhere (§2).
 
-## 5. Tools (v1, built)
+### 5.5 The sources, and how they behave
 
-Three tools, all read-only, all returning the §1 envelope. There is deliberately no `check_route` and, for now, no `get_tfrs` (see §3 and SPIKE.md: no official TFR source we can use).
+The design depends on how each upstream actually behaves. These facts were observed against the live services (dates given); re-check them when a source changes, especially when moving to NMS production.
 
-- **`get_notams`**: forwards the NMS-API's own filters (`locations`, `latitude`/`longitude`/`radius_nm` up to 100, `effective_start`/`effective_end`, `last_updated`, `classification`, `feature`, `accountability`, `free_text`, `notam_number`). At least one filter is required. The response's `filters.applied_by_source` lists exactly what the FAA applied; `applied_by_server` is empty. Each NOTAM has its raw text in every rendering the source supplied, the published fields, canonical geometry (§4a) and `parse_issues`. TFRs appear as FDC NOTAMs with text and dates; outlines are not available from this source. Requests the API would reject (bad classification, a radius without a position, a malformed timestamp, no filter) are refused before anything is sent, with an error that names the problem.
-  - **A flight is a list of identifiers, not a route.** `locations` takes up to 10 airports and en-route centers (ARTCCs). The FAA is asked once per identifier, with the other filters applied to each; the results are merged, and a NOTAM returned for several identifiers appears once with `returned_for` listing them (keyed on the FAA's unique NMS id). Each query is its own provenance source (`faa.nms.notam:KSMO`), so a failed identifier makes the response `incomplete` without hiding the others.
-  - **Implied centers** (`add_centers`, default true): the en-route center the FAA lists on the NOTAMs of a requested location (`affectedFir`) is also asked for, and named under `locations.added` with the NOTAMs that list it. `ZLA` and `KZLA` count as the same. It is one round, never recursive. A location whose NOTAMs list no center gets a `CENTER_NOT_IMPLIED` warning. **Centers between the locations are never inferred**: that would need the route's geometry and the centers' boundaries, which is the logic §0 and §2 rule out. Every response that used `locations` says so in `locations.note`.
-  - **Point and radius is not an area filter**: the FAA matches each NOTAM's reference point, not its area (SPIKE.md, 2026-11-23). The parameter description says so.
-- **`get_weather_advisories`**: the complete current SIGMET, graphical AIRMET, international SIGMET and CWA sets from NOAA AWC, optionally narrowed by `kinds` (which feeds to read) and an exact-match `hazard` applied by this server and declared in `applied_by_server`. Advisories come in a fixed feed order, each feed in the source's own order.
-- **`source_status`**: checks every source live (no cache): reachable or not, latency, production versus staging, documented API or not.
+| Need | Source | Access | Status |
+|---|---|---|---|
+| SIGMET, graphical AIRMET, international SIGMET, CWA | NOAA AWC Data API | public, no key | in use |
+| NOTAMs (US), including TFRs as FDC NOTAMs | FAA NMS-API | OAuth2 client credentials, by request to the FAA (the NMS page's "Request API Access" goes to 7-AWA-NAIMES@faa.gov); staging granted on ticket INC0036653 with the FAA's Terms of Service | staging, in use on the hosted server; production pending |
+| TFR outlines | none usable (see below) | | not pursued (§9) |
 
-Caller-chosen shaping, never silent: `limit` (no default cap; if items are omitted the response carries a `RESULT_TRUNCATED` warning and is not `complete`) and `include_geometry: false` (the response lists `omitted_fields: ["geometry"]`). A call that obtained no data at all returns `isError: true` together with the envelope; a partial failure returns the data plus a `critical` `SOURCE_UNAVAILABLE` issue and status `incomplete`.
+**NOAA AWC** (`https://aviationweather.gov/api/data/<feed>?format=json`; feeds `airsigmet`, `gairmet`, `isigmet`, `cwa`). Observed 2026-11-22:
 
-Input errors come back as `isError` results with a message the agent can act on, and invalid NOTAM requests never reach the FAA.
+- No key, no rate-limit headers; `Cache-Control` 60 to 180 s. An empty result is **HTTP 204 with an empty body**; a 200 with an empty body is treated as a failure.
+- **Server-side filters are unreliable:** `hazard=` worked, but `bbox=` and `type=` were ignored. So the tool fetches whole feeds and offers no area filter.
+- Timestamps mix epoch seconds and ISO strings; coordinates are numbers in some feeds and strings in others.
+- **Altitudes have no stated datum.** They are read as feet (hundreds of feet for G-AIRMET), and as a flight level from 18,000 ft, flagged `ALTITUDE_ASSUMED`. An international SIGMET base of 0 means the surface; a G-AIRMET base of `FZL` (the freezing level) stays unknown. Sloping limits take the widest extent.
+- Shapes: `AREAS` is a multi-part area; antimeridian features use longitudes beyond 180; one live multi-part SIGMET had a zero-area part not in its text; G-AIRMET can be a `LINE` (e.g. freezing level).
+- G-AIRMETs have no raw text, so their `raw_text` is the source record.
 
-### Transports and hosting
+**FAA NMS-API.** Staging host `https://api-staging.cgifederal-aim.com`, production `https://api-nms.aim.faa.gov`. Observed 2026-11-22 and 2026-11-23, on staging:
 
-- **stdio** (default) for a local MCP client.
-- **Streamable HTTP** (`-http :8080`): stateless, JSON responses (no streaming), at `/mcp`, with an open `/healthz`; `GET /mcp` is 405. It is open, with no authentication (a deliberate choice), and applies a global rate limit (`-rate`, default 5 per second, with bursts up to twice the rate) so a runaway agent loop cannot exhaust upstream quotas. Every tool result is sent twice, as text and as structured content (the MCP spec recommends both), so the wire size is about double the JSON (a 163-NOTAM result: 210 KB of JSON, 435 KB on the wire).
-- **Hosted on Railway** (project and service `hobbs`, region sfo): builds the `Dockerfile` and deploys automatically on every push to `main` (auto-deploy, since 2026-11-24); start command `/usr/local/bin/hobbs -http :8080 -nms-url https://api-staging.cgifederal-aim.com`; public domain `hobbs.up.railway.app` on port 8080; health check `/healthz`; the NMS credentials are Railway service variables. The repo's `.mcp.json` registers the hosted endpoint so Claude Code sessions load its tools (§8).
-- **Airworthy (`-airworthy`, false by default).** Every envelope has an `airworthy` field: whether the response may be used for flight planning and navigation (defined once, in the `provenance` package). By default it is `false`, every response from every tool also carries a `NOT_AIRWORTHY` warning (so nothing reads as complete), and the server instructions and every tool description start with "NOT AIRWORTHY". Starting with `-airworthy` is accepted only without NOTAMs or with the FAA's production NMS-API URL; any other `-nms-url`, staging included, counts as test data, so it can never be declared airworthy. Airworthy is necessary, not sufficient: it does not make the data complete or correct, which completeness and the as-is disclaimer still govern. `source_status` reports which NMS environment is in use.
-- **Configuration is by command-line flag; secrets only in environment variables** (`HOBBS_NMS_CLIENT_ID`, `HOBBS_NMS_CLIENT_SECRET`), so they never appear in process listings or shell history; on Railway, as service variables. The NOTAM source is chosen with `-nms-url` (empty, the default, turns NOTAMs off). Logs go to stderr and never contain credentials.
+- **Auth:** `POST /v1/auth/token` with HTTP Basic and `grant_type=client_credentials`; the token lasts about 30 minutes. **Query:** `GET /nmsapi/v1/notams` with header `nmsResponseFormat: GEOJSON`. Filters combine with AND. `classification` needs the long names (`DOMESTIC`, not `DOM`), and alone returns a download link, not data. Zero results is HTTP 200 with `data: {}`.
+- **Data variation:** `type` sometimes missing; `effectiveEnd` can be `PERM`; limits are strings (`SFC`, `UNL`, `FL200`, `6000FT AMSL`, `100FT AGL`, bare `135FT`); `000`/`999` flight levels mean no stated limit; a radius of 999 means a whole region. **Vertical limits are often empty** in the structured fields although the Q-line states them (open item, §8).
+- **Staging is not operational:** it includes test entries such as "AIRSPACE TESTED FOR CUTOVER SIMULATION". Hence `airworthy: false`.
+- **Volume:** one airport returns hundreds of KB; a 100 nm circle near Washington returned about 1,400 NOTAMs. No rate-limit headers.
+- **Radius search matches a NOTAM's reference point, not its area.** A 1 nm search circle placed inside a 25 nm NOTAM area, 6 to 24 nm from its center, did not return it; the same NOTAM was returned only when its center was within the search radius (tested on two large-area NOTAMs). The point the FAA uses is not always the Q-line point. So covering a route with circles cannot be made complete, and the radius parameter is documented as not an area filter.
+- **Most NOTAMs hang off an identifier.** Near Washington, 84% had an airport or facility identifier and 16% an en-route center. `KIAD` and `IAD` return the same records; `ZDC` and `KZDC` return the center's NOTAMs (TFRs, restricted areas, airways, security instructions).
+- **Each NOTAM names its center** in `affectedFir` (our `fir`), but many records leave it empty (about half at small fields). That is what `add_centers` reads, and why `CENTER_NOT_IMPLIED` exists.
+- **The center association is loose:** `ZDC` returned a Worcester, MA TFR and `ZLA` an Oregon, OH TFR. It errs toward more data.
+- **Navaid identifiers return airport NOTAMs:** `SMO` returned KSMO's, and `PDZ` returned Ontario's (KONT).
+- **The same restriction appears twice**, as an FDC NOTAM and its international copy, with different ids; cancellations come back as records of type `C`.
+- **TFRs are FDC NOTAMs** with full text and dates, but only a bare point and no outline: 41 of the 47 on the FAA's TFR site were found by number, none with the site's outline.
 
-## 6. Safety and trust
+**TFR outlines: no usable official source** (2026-11-23). `tfr.faa.gov` publishes outlines through undocumented endpoints and answered this client with HTTP 403, though it later worked once; its own documentation describes downloads for people and points to NMS for data. AWC's documented API has no TFR endpoint. A SWIM digital-TFR feed is unconfirmed and would need a separate agreement. Third-party feeds are not official. So there is no TFR tool, and the TFR adapter (`internal/source/tfr`: list plus per-TFR detail XML, built and tested on fixtures) stays turned off.
 
-- **No guarantees.** The service is provided as is, with no warranty. We make a best effort to replicate official data as faithfully as we can, and we say plainly when we could not. We do not promise it is complete, timely or correct. Every response carries a disclaimer (`provenance.Disclaimer`) saying so, and tool descriptions repeat it.
-- **Not presented as FAA data.** The NMS-API Terms of Service allow redistribution but say redistributed information may not be characterized as FAA data. The disclaimer states the data is a best-effort copy, not FAA/NWS data as published, and not endorsed. Sources are still named for provenance; confirm the attribution wording with the FAA if it becomes an issue.
-- Advisory only. The FAA briefing channels remain the legal standard.
-- NOTAM/TFR free text is untrusted: returned in a delimited `raw_text` field, never merged into summaries, and tool descriptions say it is data, not instructions.
-- Hosted: the endpoint is open (no authentication, by choice); a global rate limit is the guard against a runaway loop exhausting upstream quotas. The `Origin` header is not checked: the MCP spec says servers must validate it, and the SDK's cross-origin protection can be turned on in two lines; it is low risk for an open, read-only server with no user credentials (open item, §7). Forged `Host` headers are refused by the SDK. Anyone with the URL uses the FAA credentials, for which the operator is responsible under the NMS terms. NOTAMs are switched off by leaving out `-nms-url` (responses then say the source is not enabled). `/healthz` only says the process is up; `source_status` checks the sources. An external uptime alert is still to do.
-- Credentials (NMS client id/secret) only in environment variables.
+### 5.6 Configuration, transports and hosting
 
-## 7. Open items
+- **Configuration is by command-line flag.** Only secrets come from environment variables (`HOBBS_NMS_CLIENT_ID`, `HOBBS_NMS_CLIENT_SECRET`), so they never appear in process listings or shell history. Logs go to stderr and never contain credentials.
+  - `-http` listen address; empty means stdio.
+  - `-nms-url` NMS-API host; empty turns NOTAMs off. The environment (staging, production) is derived from the host.
+  - `-rate` HTTP requests per second, default 5, with bursts up to twice that.
+  - `-airworthy`, below.
+- **stdio** (the default) for a local MCP client.
+- **Streamable HTTP:** stateless, JSON responses (no streaming), at `/mcp`, with an open `/healthz`; `GET /mcp` is 405. It is open, with no authentication, and the global rate limit guards upstream quotas. Every tool result is sent twice, as text and as structured content (the MCP spec recommends both), so the wire size is about double the JSON: a 163-NOTAM result was 210 KB of JSON and 435 KB on the wire.
+- **Airworthy** (`-airworthy`, false by default). Every envelope has an `airworthy` field: whether the response may be used for flight planning and navigation. By default it is `false`, every response also carries a `NOT_AIRWORTHY` warning (so nothing reads as complete), and the server instructions and every tool description start with "NOT AIRWORTHY". `-airworthy` is accepted only without NOTAMs or with the FAA's production NMS-API URL; any other `-nms-url`, staging included, counts as test data. Airworthy is necessary, not sufficient: it does not make the data complete or correct.
+- **Hosted on Railway** (project and service `hobbs`, region sfo). It builds the `Dockerfile` (Go 1.25 build stage, a non-root runtime on Alpine) and deploys on every push to `main` once CI has passed. Start command: `/usr/local/bin/hobbs -http :8080 -nms-url https://api-staging.cgifederal-aim.com`. Public domain `hobbs.up.railway.app` on port 8080; health check `/healthz`. The NMS credentials are Railway service variables.
 
-- **TFRs: not pursued further** (decision, 2026-11-23). No official source we can use publishes TFR outlines (SPIKE.md); we work with what we have. TFR NOTAMs are available through `get_notams` as FDC NOTAMs with text and dates, and outlines can be cross-checked by eye on public sites. The TFR adapter stays in the code base, turned off, until we either find a usable source or delete it.
-- **NMS production.** Access so far is staging, granted on ticket INC0036653 with the FAA's Terms of Service; moving to production is a separate onboarding step with the NOTAM Service Center. Until then the hosted server cannot be airworthy.
-- **NOTAM vertical limits from the Q-line** (proposed, not decided). Many NOTAMs report `lower`/`upper` as `UNKNOWN` (76 of 163 on the KSMO to KPSP test) because the FAA's structured limit fields are empty, although the ICAO Q-line states them (e.g. `000/008`: surface to FL008). Reading them from the Q-line would be a §0 "reasonable interpretation" if the source of the value is marked; it needs a decision.
-- **`Origin` validation** (spec requirement, not done; see §6).
-- **Response size.** Results are large (§2 accepts this) and doubled on the wire (§5). Dropping the text copy would halve it but could break older clients; not decided.
-- **The FAA's center association is loose**: a center's query can return TFRs far outside it (Worcester, MA under ZDC; Oregon, OH under ZLA; SPIKE.md). It errs toward more data, which is the safe direction; watch it on production.
-- AWC documented rate limit and terms of use.
+### 5.7 Code layout
+
+```
+cmd/hobbs/             main: flags, wiring, transports
+internal/mcpserver/    tools, input validation, merging, response shaping, HTTP handler
+internal/provenance/   envelope, source record, issue codes, status rules, disclaimer
+internal/model/        Notam, Advisory, Altitude, Geometry
+internal/geo/          shape translation into canonical geometry (no intersection logic)
+internal/source/awc/   AWC adapter (four feeds)
+internal/source/nms/   NMS-API client (OAuth2, query validation, parsing)
+internal/source/tfr/   TFR adapter (turned off; not linked into the binary)
+testdata/              captured upstream responses, used only by tests
+```
+
+## 6. Testing and delivery
+
+- **Unit tests** (`go test ./...`) run offline against fake upstream servers that serve captured real responses (`testdata/`). The binary never reads test data. The tests cover parsing, geometry with exact values, the envelope rules and every tool through a real MCP client.
+- **Integration tests** (`go test -tags live ./...`) run the server locally against the live sources and need the NMS credentials. The TFR adapter's live test is built only with `-tags tfrlive`.
+- **End-to-end tests** run only against the hosted service, through a real MCP client: the `hobbs` server registered in `.mcp.json`. Start with `source_status`.
+- **CI** (`.github/workflows/ci.yml`) runs on every pull request and every push to `main`: gofmt, `go vet`, build, the offline tests, `staticcheck` and `deadcode` (pinned versions; `deadcode` may report only the items listed in `.github/deadcode-expected.txt`), and a Docker build of the image Railway deploys.
+- **Deploy:** Railway auto-deploys `main` and waits for CI before building, so only commits that pass reach production. After each merge, confirm the deployment reached `SUCCESS` and call `source_status`.
+
+## 7. Safety and trust
+
+- **No guarantees.** The service is provided as is, with no warranty. We make a best effort to replicate official data faithfully and say plainly when we could not. Every response carries the disclaimer (`provenance.Disclaimer`), and tool descriptions repeat it.
+- **Not presented as FAA data.** The NMS-API Terms of Service allow redistribution but say redistributed information may not be characterized as FAA data. The disclaimer says the data is a best-effort copy, not FAA or NWS data as published, and not endorsed. Sources are still named for provenance.
+- **Advisory only.** The FAA briefing channels remain the legal standard.
+- **Source text is untrusted.** NOTAM and advisory text is returned in `raw_text`, never merged into summaries, and tool descriptions say it is data, not instructions.
+- **The hosted endpoint is open** (no authentication, by choice). The global rate limit guards against a runaway loop exhausting upstream quotas. Anyone with the URL uses the FAA credentials, for which the operator is responsible under the NMS terms. Forged `Host` headers are refused by the MCP SDK; the `Origin` header is not checked yet (§8). `/healthz` says only that the process is up; `source_status` checks the sources.
+- **Credentials** live only in environment variables (Railway service variables when hosted), never in the repository.
+
+## 8. Open items
+
+- **NMS production.** Access so far is staging; production is a separate onboarding step with the NOTAM Service Center. Until then the hosted server cannot be airworthy.
+- **NOTAM vertical limits from the Q-line** (proposed, not decided). Many NOTAMs report `lower`/`upper` as `UNKNOWN` (76 of 163 on a KSMO to KPSP test) because the FAA's structured limit fields are empty, although the ICAO Q-line states them (e.g. `000/008`: surface to FL008). Reading them from the Q-line would be a §2.1 "reasonable interpretation" if the source of the value is marked.
+- **`Origin` validation.** The MCP spec says servers must validate it; the SDK's cross-origin protection can be turned on in two lines. Low risk for an open, read-only server with no user credentials.
+- **Response size.** Results are large (§3.3 accepts this) and doubled on the wire (§5.6). Dropping the text copy would halve it but could break older clients.
+- **The FAA's center association is loose** (§5.5). It errs toward more data, which is the safe direction; watch it on production.
+- **Required CI on `main`:** a GitHub branch rule requiring the `go` and `docker` checks would block merging a red PR (repo Settings → Branches).
+- AWC's documented rate limit and terms of use.
 - An external uptime alert for the hosted endpoint.
-- **Required CI on `main`**: a GitHub branch rule requiring the `go` and `docker` checks would block merging a red PR (repo Settings → Branches). Not set.
 
-## 8. Decisions log
+## 9. Decisions log
 
 A living record, dated, newest last. Each entry says what was decided, why, and **which alternatives were considered and why they lost**, so a later reader can see the trade-off and a later session does not reopen a settled question by accident (or re-propose an option already rejected). Add an entry, alternatives included, whenever a decision is made; when one is reversed, add a new entry that says so rather than editing history. Change a decision only with the maintainer.
 
 | Date | Decision | Why | Alternatives considered (and why not) |
 |---|---|---|---|
 | 2026-11-22 | Go, official MCP Go SDK; stdio and Streamable HTTP | maintainer's choice; the SDK handles the protocol | Python or TypeScript SDKs: maintainer chose Go. Hand-written protocol code: the SDK is the reference implementation and tracks spec versions |
-| 2026-11-22 | Provenance on every response, through one constructor; status derived by rule (§1) | agents read absence as "none"; that mistake must be impossible by accident | Bare data, or provenance as optional metadata: an omission would read as "nothing found". Status set by each handler: inconsistent, easy to get wrong |
-| 2026-11-22 | Promise is as-is, best effort, no warranty; not characterized as FAA data (§6) | NMS terms; we cannot guarantee completeness | Promising a faithful, complete replica of FAA data: cannot be guaranteed, and the NMS terms forbid presenting redistributed data as FAA data |
-| 2026-11-22 | Mantra §0: make the data available, uniform, consistent; no relevance, route or applicability logic in this layer | "what happens if we miss something": opinionated logic belongs in higher layers | A `check_route` tool, relevance ranking or "applies / does not apply" labels (proposed early, in SPIKE.md's first conclusions): a bug in our logic would silently hide the record that mattered |
-| 2026-11-22 | One canonical geometry (RFC 7946 GeoJSON), translations recorded, approximations overstate (§4a) | uniform shapes; a translation error must show as extra data, not a miss | Passing each source's shapes through as published (circles, AWC point lists, extended longitudes): every agent would need per-source handling. Inscribed or exact-chord circle polygons: understate the area, so an error would hide data |
-| 2026-11-22 | No cache | premature; add only on a measured need, keeping the provenance contract | Polling feeds on their `Cache-Control` cadence into a snapshot cache (SPIKE.md's first plan): more moving parts, staleness to report, and no measured need yet |
-| 2026-11-23 | TFRs not pursued; adapter kept, turned off, not linked into the binary (§7) | no usable official outline source; tfr.faa.gov blocks automated access and we do not work around it | Fetch tfr.faa.gov anyway (undocumented, answers this client with 403; disguising the client is ruled out). Ask the FAA for access (maintainer declined). Derive outlines from NOTAM text (the logic §0 rules out). Commercial or community feeds (not official). SWIM digital-TFR feed (unconfirmed, separate agreement). Delete the adapter (maintainer kept it, off) |
+| 2026-11-22 | Provenance on every response, through one constructor; status derived by rule (§5.1) | agents read absence as "none"; that mistake must be impossible by accident | Bare data, or provenance as optional metadata: an omission would read as "nothing found". Status set by each handler: inconsistent, easy to get wrong |
+| 2026-11-22 | Promise is as-is, best effort, no warranty; not characterized as FAA data (§7) | NMS terms; we cannot guarantee completeness | Promising a faithful, complete replica of FAA data: cannot be guaranteed, and the NMS terms forbid presenting redistributed data as FAA data |
+| 2026-11-22 | Principles §2: make the data available, uniform, consistent; no relevance, route or applicability logic in this layer | "what happens if we miss something": opinionated logic belongs in higher layers | A `check_route` tool, relevance ranking or "applies / does not apply" labels (proposed early): a bug in our logic would silently hide the record that mattered |
+| 2026-11-22 | One canonical geometry (RFC 7946 GeoJSON), translations recorded, approximations overstate (§5.4) | uniform shapes; a translation error must show as extra data, not a miss | Passing each source's shapes through as published (circles, AWC point lists, extended longitudes): every agent would need per-source handling. Inscribed or exact-chord circle polygons: understate the area, so an error would hide data |
+| 2026-11-22 | No cache | premature; add only on a measured need, keeping the provenance contract | Polling feeds on their `Cache-Control` cadence into a snapshot cache (the first plan): more moving parts, staleness to report, and no measured need yet |
+| 2026-11-23 | TFRs not pursued; adapter kept, turned off, not linked into the binary (§5.5) | no usable official outline source; tfr.faa.gov blocks automated access and we do not work around it | Fetch tfr.faa.gov anyway (undocumented, answers this client with 403; disguising the client is ruled out). Ask the FAA for access (maintainer declined). Derive outlines from NOTAM text (the logic §2 rules out). Commercial or community feeds (not official). SWIM digital-TFR feed (unconfirmed, separate agreement). Delete the adapter (maintainer kept it, off) |
 | 2026-11-23 | Configuration by flag; only secrets in environment variables (`HOBBS_NMS_CLIENT_ID`, `HOBBS_NMS_CLIENT_SECRET`) | flags are explicit; secrets stay out of process listings | Environment variables for everything (the first version had several, e.g. a live-test switch): hidden configuration. Secrets as flags: visible in process listings and shell history |
 | 2026-11-23 | One NMS setting: `-nms-url` (empty = NOTAMs off); environment derived from the host | no separate staging/production switch to get wrong | A NOTAMs-on flag plus a staging/production switch (the first version): two settings that could disagree with the URL |
-| 2026-11-23 | `airworthy` field on every envelope, false by default; `-airworthy` refused unless every source is production (§5) | test data must never read as usable for flight | A per-snapshot `NON_PRODUCTION_SOURCE` warning (the first version): only covered NOTAMs. A "not for flight" warning flag: a double negative, and off by default would have meant usable by default |
+| 2026-11-23 | `airworthy` field on every envelope, false by default; `-airworthy` refused unless every source is production (§5.6) | test data must never read as usable for flight | A per-snapshot `NON_PRODUCTION_SOURCE` warning (the first version): only covered NOTAMs. A "not for flight" warning flag: a double negative, and off by default would have meant usable by default |
 | 2026-11-23 | Test data is captured fixtures used only by tests (`testdata/`), never read by the binary | the binary only talks to real sources | A fixture or replay mode in the binary: test data could leak into real responses |
-| 2026-11-23 | Hosted on Railway; endpoint open, no auth; global rate limit | hobby project; simplicity; the rate limit protects upstream quotas | Bearer tokens (`HOBBS_TOKENS`, built then removed): friction for a single user. A cheap VPS: more to run. `Origin` validation is still open (§7) |
+| 2026-11-23 | Hosted on Railway; endpoint open, no auth; global rate limit | hobby project; simplicity; the rate limit protects upstream quotas | Bearer tokens (`HOBBS_TOKENS`, built then removed): friction for a single user. A cheap VPS: more to run. `Origin` validation is still open (§8) |
 | 2026-11-23 | NOTAMs enabled on the hosted server, from FAA staging | maintainer wants it on; staging is what we have | Weather only until NMS production access: no NOTAMs to test or use in the meantime; `airworthy: false` covers the risk |
-| 2026-11-23 | No route input. Point-and-radius stays but is documented as matching NOTAM reference points, not areas | probe on staging (SPIKE.md): covering a route with circles cannot be made complete | A route plus corridor, covered by FAA radius searches: the FAA matches reference points, so large areas near the route are missed. Padding the circles: no upper bound on NOTAM size (radius 999). Fetching whole center or FDC sets and trimming by shape: our own intersection logic (§0), and still misses text-only NOTAMs |
+| 2026-11-23 | No route input. Point-and-radius stays but is documented as matching NOTAM reference points, not areas | a probe on staging (§5.5): covering a route with circles cannot be made complete | A route plus corridor, covered by FAA radius searches: the FAA matches reference points, so large areas near the route are missed. Padding the circles: no upper bound on NOTAM size (radius 999). Fetching whole center or FDC sets and trimming by shape: our own intersection logic (§2), and still misses text-only NOTAMs |
 | 2026-11-23 | A flight is a list of identifiers (`locations`, up to 10); the en-route center the FAA lists on their NOTAMs is added (`add_centers`, default true); centers in between are never inferred, and every response says so | uses only the FAA's own associations; adding a center can only add data; inferring centers between airports would need route geometry | Airports only: misses the en-route 16% (TFRs, airspace, airways). Centers only when the caller lists them: easy to forget the obvious one. Inferring the centers a route crosses from FAA boundary data (NASR): new data source plus geometry logic, and a wrong answer silently drops a center. Resolving navaid identifiers through NASR: same cost; the FAA's own association is returned instead |
 | 2026-11-23 | `location` (singular) replaced by `locations` | one way to do it | Keeping both: two ways to say the same thing, and the single form would skip center inference inconsistently |
 | 2026-11-23 | `.mcp.json` registers the hosted endpoint as the `hobbs` MCP server | end-to-end testing through a real MCP client | A claude.ai connector (works in every Claude surface, but the maintainer must add it; still possible). Hand-written `curl` calls: not how agents use the server |
@@ -266,6 +402,7 @@ A living record, dated, newest last. Each entry says what was decided, why, and 
 | 2026-11-24 | GitHub Actions CI on every pull request and push to `main`: gofmt, vet, build, offline tests, staticcheck, deadcode against an expected list, Docker build; Railway to wait for it before deploying | catch breakage before it ships; the deploy only takes commits that pass | Relying on local checks and on Railway's build: nothing stops a broken merge. Running the `-tags live` tests in CI: they need FAA credentials and depend on upstream availability |
 | 2026-11-24 | Railway auto-deploys `main` (the Railway GitHub App was given access to the repo; PR #5 was the first merge to deploy on its own) | a merge is the deploy; no manual step | Reconnecting the source after each merge (what was done until then): a manual step that was easy to miss |
 | 2026-11-24 | Manage Railway with the direct MCP tools, not `railway-agent`; settings they cannot reach are changed by the maintainer in the dashboard | the agent reported a change it had not made and started an unrequested deployment | Using `railway-agent` for settings the direct tools cannot reach (auto-deploy, wait for CI): it reached them, but unreliably |
-| 2026-11-24 | Railway waits for CI before deploying (set in the dashboard; first seen on PR #6: the deploy waited for CI, then succeeded) | only commits that pass CI reach production | Deploying every merge at once: a merge with red CI on `main` would ship. A GitHub rule requiring CI before merging is complementary and still open (§7) |
+| 2026-11-24 | Railway waits for CI before deploying (set in the dashboard; first seen on PR #6: the deploy waited for CI, then succeeded) | only commits that pass CI reach production | Deploying every merge at once: a merge with red CI on `main` would ship. A GitHub rule requiring CI before merging is complementary and still open (§8) |
 | 2026-11-24 | **Docs are part of every change**: updated in the same PR, for a person's high-level understanding and for a future agent to continue with no chat history (`CLAUDE.md` says what goes where) | the maintainer's core development principle; work is picked up across sessions | Documenting in batches after the fact (what happened before this rule): docs drifted from the code and had to be reconciled in several passes |
 | 2026-11-24 | The decisions log records alternatives considered for every decision (this column) | the maintainer wants the trade-offs visible and kept up to date | Decisions with reasons only: a later reader cannot tell what was weighed, and may re-propose a rejected option |
+| 2026-11-24 | DESIGN.md restructured: principles, product requirements with user flows, a high-level design with a box diagram, then detail; the source behavior the design depends on lives in §5.5 | the maintainer wants a document a person can follow top-down; the spike notes were throw-away proof-of-concept work, so the design should not depend on them | Keeping the design spread over numbered topic sections with references into SPIKE.md: no overview, and the evidence lived in a document not meant to be maintained |

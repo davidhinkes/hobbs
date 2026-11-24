@@ -2,7 +2,7 @@
 // for each, its detail document (XML) holding dates, altitudes, outline and
 // the NOTAM text.
 //
-// These endpoints are not a documented, supported API (docs/SPIKE.md), so every
+// These endpoints are not a documented, supported API (docs/DESIGN.md §5.5), so every
 // snapshot is marked undocumented by the provenance contract, and behavior
 // here follows observed responses.
 //

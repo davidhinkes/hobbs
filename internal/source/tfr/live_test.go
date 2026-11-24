@@ -24,7 +24,7 @@ func TestLive(t *testing.T) {
 	if err != nil {
 		if snap.Source.HTTPStatus == 403 {
 			// tfr.faa.gov serves "Access Denied" to this client. That is the
-			// site's access control; we do not work around it. See docs/SPIKE.md.
+			// site's access control; we do not work around it. See docs/DESIGN.md §5.5.
 			t.Skipf("tfr.faa.gov denied this client (HTTP 403): %v", err)
 		}
 		t.Fatal(err)

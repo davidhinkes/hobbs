@@ -194,7 +194,7 @@ func repeatedSingles(raw []byte) []string {
 }
 
 // altitude interprets one vertical limit. The published code and unit are kept
-// by the caller. Mappings (all documented in docs/SPIKE.md):
+// by the caller. Mappings (the TFR detail format's vertical codes):
 //
 //	ALT + FT  -> MSL feet          ALT + FL -> flight level
 //	HEI + FT  -> AGL feet          (code absent) + FL -> flight level

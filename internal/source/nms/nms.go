@@ -3,7 +3,7 @@
 // The API is documented by an OpenAPI spec the FAA provides with credentials
 // (it is not public); access is requested via faa.gov/about/initiatives/notam.
 // Client queries it (staging or production, by host); behavior follows
-// observed responses (docs/SPIKE.md). With no -nms-url the server has no
+// observed responses (docs/DESIGN.md §5.5). With no -nms-url the server has no
 // Client, and NOTAM responses report the source as not consulted, so they are
 // marked incomplete.
 package nms

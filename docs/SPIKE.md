@@ -1,5 +1,7 @@
 # Endpoint spike findings
 
+> **Archived proof-of-concept notes; not maintained.** The source behavior the design depends on is in `docs/DESIGN.md` §5.5, which is authoritative. Do not update this file or cite it.
+
 Started 2026-11-22 against live services; later sections carry their own dates. Fixtures are in `testdata/`.
 Everything here was observed, not assumed. Re-verify before relying on it; the TFR endpoints in particular are undocumented.
 

@@ -4,8 +4,8 @@ An MCP server (Go) that makes official US aviation data available to AI agents: 
 
 ## Read first
 
-- `docs/DESIGN.md` **§0** (the mantra and what this layer must not do) and **§8** (the decisions log, with the alternatives already considered). Do not reopen a logged decision, or re-propose a rejected alternative, without the maintainer.
-- `docs/DESIGN.md` §7 for open items; `docs/SPIKE.md` for what the upstream services were observed to do.
+- `docs/DESIGN.md` **§2** (the principles: what this layer must not do), **§4** (the high-level design) and **§9** (the decisions log, with the alternatives already considered). Do not reopen a logged decision, or re-propose a rejected alternative, without the maintainer.
+- `docs/DESIGN.md` §3 for the product requirements and user flows, §5.5 for how the upstream services behave, §8 for open items.
 
 ## The rules that matter most
 
@@ -15,8 +15,7 @@ An MCP server (Go) that makes official US aviation data available to AI agents: 
 
   Update them in the same commit or PR as the change. Write for a reader with no chat history: state facts, decisions and reasons, never "as discussed". Date decisions and observations. When something is superseded, fix or mark it, so no two docs contradict each other. Where each kind of thing goes:
   - `README.md`: what it is, the tools, how to run, host and develop it;
-  - `docs/DESIGN.md`: how it behaves and why; §7 open items; §8 the decisions log, where every decision gets its date, its reason and **the alternatives considered and why they lost**, added when the decision is made;
-  - `docs/SPIKE.md`: what the upstream services were observed to do;
+  - `docs/DESIGN.md`: requirements and user flows (§3), the high-level design and its diagram (§4), how each part behaves and why (§5), including what the upstream services were observed to do (§5.5, dated); open items (§8); the decisions log (§9), where every decision gets its date, its reason and **the alternatives considered and why they lost**, added when the decision is made;
   - `CLAUDE.md`: how to work here;
   - the tool descriptions and package comments in the code: what each part does.
 
@@ -42,4 +41,4 @@ An MCP server (Go) that makes official US aviation data available to AI agents: 
 - Commit secrets, or print FAA credentials or copy them into tool calls or chat. They live in Railway service variables; any local copy is for one session only.
 - Work around access controls: `tfr.faa.gov` has blocked this client (HTTP 403) and we do not disguise the client. The TFR adapter stays turned off.
 - Email the FAA for help (maintainer's decision), or send the maintainer's personal details to outside services.
-- Add route input or infer en-route centers between airports (DESIGN.md §5, §8).
+- Add route input or infer en-route centers between airports (DESIGN.md §3.4, §9).
