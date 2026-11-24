@@ -416,8 +416,11 @@ func parseFeature(raw json.RawMessage) (model.Notam, *note) {
 		a.Geometry, a.GeometryDerivation = circleGeometry(*qCenter, radius, n)
 	}
 
-	// Raw text: ICAO rendering preferred, local otherwise; all kept.
-	var icao, local string
+	// Raw text: ICAO rendering preferred, local otherwise. The one chosen goes
+	// in RawText (its format in RawTextFormat); Translations keeps every other
+	// rendering, so each text appears once and none is lost.
+	var all []model.Translation
+	icao, local := -1, -1
 	for _, t := range f.Properties.Core.Translation {
 		text := string(t.FormattedText)
 		if text == "" {
@@ -426,22 +429,31 @@ func parseFeature(raw json.RawMessage) (model.Notam, *note) {
 		if text == "" {
 			continue
 		}
-		a.Translations = append(a.Translations, model.Translation{Format: string(t.Type), Text: text})
 		switch strings.ToUpper(string(t.Type)) {
 		case "ICAO":
-			icao = text
+			if icao < 0 {
+				icao = len(all)
+			}
 		case "LOCAL_FORMAT":
-			local = text
+			if local < 0 {
+				local = len(all)
+			}
 		}
+		all = append(all, model.Translation{Format: string(t.Type), Text: text})
 	}
+	primary := -1
 	switch {
-	case icao != "":
-		a.RawText, a.RawFormat = icao, model.RawOfficialText
-	case local != "":
-		a.RawText, a.RawFormat = local, model.RawOfficialText
-	case len(a.Translations) > 0:
-		a.RawText, a.RawFormat = a.Translations[0].Text, model.RawOfficialText
-	default:
+	case icao >= 0:
+		primary = icao
+	case local >= 0:
+		primary = local
+	case len(all) > 0:
+		primary = 0
+	}
+	if primary >= 0 {
+		a.RawText, a.RawTextFormat, a.RawFormat = all[primary].Text, all[primary].Format, model.RawOfficialText
+		a.Translations = model.Others(all, primary)
+	} else {
 		a.RawText, a.RawFormat = string(raw), model.RawUpstreamJSON
 		n.Add("no NOTAM text rendering supplied; upstream record kept verbatim")
 	}

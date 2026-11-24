@@ -225,27 +225,38 @@ func TestSampleRecordSemantics(t *testing.T) {
 		}
 	}
 
-	// Text: ICAO preferred; every rendering kept; single-translation records kept.
-	for _, a := range it {
-		if len(a.Translations) == 0 {
-			t.Errorf("%s: no translations", a.ID)
-		}
-	}
+	// Text: ICAO preferred in RawText; every other rendering in Translations;
+	// each rendering exactly once.
 	icaoOnly := byNumber(t, it, "A5801/26")
-	if !strings.Contains(icaoOnly.RawText, "NOTAM") || len(icaoOnly.Translations) != 1 {
-		t.Errorf("icao-only: %q %v", icaoOnly.RawText, icaoOnly.Translations)
+	if !strings.Contains(icaoOnly.RawText, "NOTAM") || icaoOnly.RawTextFormat != "ICAO" || len(icaoOnly.Translations) != 0 {
+		t.Errorf("icao-only: %q %q %v", icaoOnly.RawText, icaoOnly.RawTextFormat, icaoOnly.Translations)
 	}
 	localOnly := byNumber(t, it, "09/004")
-	if !strings.HasPrefix(localOnly.RawText, "!") || len(localOnly.Translations) != 1 {
-		t.Errorf("local-only: %q", localOnly.RawText)
+	if !strings.HasPrefix(localOnly.RawText, "!") || localOnly.RawTextFormat != "LOCAL_FORMAT" || len(localOnly.Translations) != 0 {
+		t.Errorf("local-only: %q %q %v", localOnly.RawText, localOnly.RawTextFormat, localOnly.Translations)
 	}
+	both := 0
 	for _, a := range it {
-		if len(a.Translations) == 2 && a.RawText != a.Translations[0].Text && a.RawText != a.Translations[1].Text {
-			t.Errorf("%s: RawText must be one of the renderings, unaltered", a.ID)
+		if a.RawFormat != model.RawOfficialText || a.RawTextFormat == "" {
+			t.Errorf("%s: raw_format=%q raw_text_format=%q", a.ID, a.RawFormat, a.RawTextFormat)
+		}
+		for _, tr := range a.Translations {
+			if tr.Text == a.RawText || tr.Format == a.RawTextFormat {
+				t.Errorf("%s: translation %s duplicates raw_text", a.ID, tr.Format)
+			}
+		}
+		if len(a.Translations) == 1 {
+			both++
+			if a.RawTextFormat != "ICAO" || a.Translations[0].Format != "LOCAL_FORMAT" {
+				t.Errorf("%s: with both renderings, raw_text must be ICAO and translations the local one: %q %v", a.ID, a.RawTextFormat, a.Translations)
+			}
 		}
 		if a.NMSID == "" || a.Classification == "" {
 			t.Errorf("%s: missing nms id/classification", a.ID)
 		}
+	}
+	if both == 0 {
+		t.Error("fixture should include a NOTAM with both ICAO and local renderings")
 	}
 	if mil := byNumber(t, it, "M0832/26"); mil.Classification != "MIL" {
 		t.Errorf("classification = %q", mil.Classification)

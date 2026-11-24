@@ -168,8 +168,9 @@ func TestFixtureTFRs(t *testing.T) {
 		if !x.DetailRetrieved || x.RawFormat != model.RawOfficialText || !strings.HasPrefix(x.RawText, "!FDC "+x.ID) {
 			t.Errorf("%s: detail=%v raw=%.30q", x.ID, x.DetailRetrieved, x.RawText)
 		}
-		if len(x.Translations) != 2 || x.Translations[0].Format != "USNS" || x.Translations[1].Format != "TRADITIONAL" {
-			t.Errorf("%s: translations = %d", x.ID, len(x.Translations))
+		// USNS in RawText; only the other rendering in Translations.
+		if x.RawTextFormat != "USNS" || len(x.Translations) != 1 || x.Translations[0].Format != "TRADITIONAL" || x.Translations[0].Text == x.RawText {
+			t.Errorf("%s: raw_text_format=%q translations=%v", x.ID, x.RawTextFormat, x.Translations)
 		}
 		if x.Regulation != "99.7" {
 			t.Errorf("%s: regulation = %q", x.ID, x.Regulation)

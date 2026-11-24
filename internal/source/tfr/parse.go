@@ -305,14 +305,17 @@ func parseDetail(raw []byte, t *model.TFR, n *note) error {
 		t.Details = det
 	}
 
-	// Text: the USNS rendering is the primary; every rendering is kept.
+	// Text: the USNS rendering is the primary, in RawText; the others stay in
+	// Translations, so each rendering appears exactly once.
+	var all []model.Translation
 	for _, r := range []struct{ format, text string }{{"USNS", x.USNS}, {"TRADITIONAL", x.Traditonal}} {
 		if clean(r.text) != "" {
-			t.Translations = append(t.Translations, model.Translation{Format: r.format, Text: clean(r.text)})
+			all = append(all, model.Translation{Format: r.format, Text: clean(r.text)})
 		}
 	}
-	if len(t.Translations) > 0 {
-		t.RawText, t.RawFormat = t.Translations[0].Text, model.RawOfficialText
+	if len(all) > 0 {
+		t.RawText, t.RawTextFormat, t.RawFormat = all[0].Text, all[0].Format, model.RawOfficialText
+		t.Translations = model.Others(all, 0)
 	}
 
 	// Areas: each altitude block joined to its published outline by area id.

@@ -43,15 +43,21 @@ type Notam struct {
 	Geometry           *Geometry   `json:"geometry,omitempty"`
 	GeometryDerivation *Derivation `json:"geometry_derivation,omitempty"`
 
-	// Text is the NOTAM body (item E) as stated.
+	// Text is the message body as the source states it in its own text field
+	// (for NMS, with the domestic keyword, e.g. "SVC ..."). It is not
+	// necessarily identical to ICAO item E, which omits the keyword.
 	Text string `json:"text,omitempty"`
 	// RawText is the complete NOTAM text as the source rendered it, unaltered
 	// (the ICAO rendering when both exist). Always present. RawFormat says
 	// whether it is NOTAM text or, as a last resort, the upstream record.
 	RawText   string    `json:"raw_text"`
 	RawFormat RawFormat `json:"raw_format"`
-	// Translations are every text rendering the source supplied (e.g. the
-	// ICAO and local/domestic formats), unaltered.
+	// RawTextFormat names the rendering RawText holds (e.g. "ICAO",
+	// "LOCAL_FORMAT"); empty when RawFormat is upstream_json.
+	RawTextFormat string `json:"raw_text_format,omitempty"`
+	// Translations are the other text renderings the source supplied, besides
+	// the one in RawText, unaltered. RawText plus Translations is every
+	// rendering, each exactly once. Empty when there is only one.
 	Translations []Translation `json:"translations,omitempty"`
 
 	// NMSID is the source's stable unique identifier; ID alone (the NOTAM
@@ -77,6 +83,19 @@ type Notam struct {
 type Translation struct {
 	Format string `json:"format"` // e.g. "ICAO", "LOCAL_FORMAT"
 	Text   string `json:"text"`
+}
+
+// Others returns every rendering in all except the one at index primary (the
+// one a record carries in RawText), or nil when there are none. Parsers use it
+// so each rendering appears exactly once in a record.
+func Others(all []Translation, primary int) []Translation {
+	var out []Translation
+	for i, t := range all {
+		if i != primary {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // Validate checks the invariants every NOTAM must satisfy before it is

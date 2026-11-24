@@ -44,11 +44,13 @@ type TFR struct {
 	Areas []TFRArea `json:"areas,omitempty"`
 
 	// RawText is the NOTAM text as published (the "USNS" rendering when
-	// present). RawFormat says what it holds. Translations lists every text
-	// rendering supplied.
-	RawText      string        `json:"raw_text"`
-	RawFormat    RawFormat     `json:"raw_format"`
-	Translations []Translation `json:"translations,omitempty"`
+	// present). RawFormat says what it holds; RawTextFormat names the
+	// rendering ("USNS", "TRADITIONAL"), empty for upstream_json. Translations
+	// lists the other renderings supplied, so each appears exactly once.
+	RawText       string        `json:"raw_text"`
+	RawFormat     RawFormat     `json:"raw_format"`
+	RawTextFormat string        `json:"raw_text_format,omitempty"`
+	Translations  []Translation `json:"translations,omitempty"`
 
 	// Details holds published contact and facility fields with no normalized home.
 	Details map[string]string `json:"details,omitempty"`

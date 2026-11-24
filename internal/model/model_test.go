@@ -71,3 +71,16 @@ func TestNotamValidate(t *testing.T) {
 		})
 	}
 }
+
+func TestOthers(t *testing.T) {
+	all := []Translation{{Format: "LOCAL_FORMAT", Text: "L"}, {Format: "ICAO", Text: "I"}}
+	if got := Others(all, 1); len(got) != 1 || got[0].Format != "LOCAL_FORMAT" {
+		t.Errorf("Others(all, 1) = %v", got)
+	}
+	if got := Others(all[:1], 0); got != nil {
+		t.Errorf("Others of one = %v, want nil", got)
+	}
+	if len(all) != 2 || all[1].Format != "ICAO" {
+		t.Errorf("Others modified its input: %v", all)
+	}
+}
