@@ -111,27 +111,29 @@ Accepted consequence: responses can be large (an airport can have hundreds of NO
 
 ## 4. High-level design
 
-```
-     AI agent / higher-layer app            Claude Code session (.mcp.json)
-                  │                                      │
-                  │  MCP: stdio, or Streamable HTTP POST /mcp (stateless, JSON)
-                  ▼                                      ▼
- ┌─────────────────────────────── hobbs: one Go binary ───────────────────────────────┐
- │ transport       stdio  │  HTTP: /mcp, /healthz, global rate limit                  │
- │────────────────────────────────────────────────────────────────────────────────────│
- │ tools           get_notams   get_weather_advisories   source_status                │
- │ (mcpserver)     validate → query sources in parallel → merge → shape               │
- │────────────────────────────────────────────────────────────────────────────────────│
- │ respond()       provenance envelope: sources, issues, status,                      │
- │ (provenance)    airworthy, disclaimer — one constructor for every tool             │
- │────────────────────────────────────────────────────────────────────────────────────│
- │ source          awc: 4 feeds        nms: OAuth2 client        tfr: off             │
- │ adapters        parse → model (Notam, Advisory, Altitude) + geo (GeoJSON)          │
- └────────────────────┬───────────────────────────────┬───────────────────────────────┘
-                      │ HTTPS, no key                 │ HTTPS, OAuth2 client credentials
-                      ▼                               ▼
-      NOAA Aviation Weather Center      FAA NOTAM Management Service (NMS-API)
-      aviationweather.gov/api/data      staging today; production pending
+```mermaid
+flowchart TB
+  agent["AI agent / higher-layer app"]
+  cc["Claude Code session<br/>(.mcp.json)"]
+
+  subgraph hobbs["hobbs: one Go binary"]
+    direction TB
+    transport["<b>Transport</b><br/>stdio · Streamable HTTP /mcp<br/>global rate limit · /healthz"]
+    tools["<b>Tools</b> (mcpserver)<br/>get_notams · get_weather_advisories · source_status<br/>validate → query sources in parallel → merge → shape"]
+    env["<b>respond()</b> (provenance)<br/>envelope: sources · issues · status · airworthy · disclaimer"]
+    adapters["<b>Source adapters</b><br/>awc: 4 feeds · nms: OAuth2 client · tfr: off<br/>parse → model (Notam, Advisory, Altitude) + geo (GeoJSON)"]
+    transport --> tools
+    tools --> adapters
+    tools --> env
+  end
+
+  awc[("NOAA Aviation Weather Center<br/>aviationweather.gov/api/data")]
+  nms[("FAA NOTAM Management Service (NMS-API)<br/>staging today; production pending")]
+
+  agent -- "MCP" --> transport
+  cc -- "MCP" --> transport
+  adapters -- "HTTPS, no key" --> awc
+  adapters -- "HTTPS, OAuth2 client credentials" --> nms
 ```
 
 **The parts:**
@@ -155,11 +157,13 @@ Accepted consequence: responses can be large (an airport can have hundreds of NO
 
 **Delivery:**
 
-```
-  pull request ──► GitHub Actions CI ──► merge to main ──► CI on main ──► Railway build (Dockerfile) ──► hobbs.up.railway.app
-                   (gofmt, vet, build,                     (Railway waits        │
-                    tests, staticcheck,                     for it to pass)      └─ start: hobbs -http :8080 -nms-url <staging>
-                    deadcode, docker)                                               secrets: Railway service variables
+```mermaid
+flowchart LR
+  pr["Pull request"] --> ci1["CI<br/>gofmt · vet · build · tests<br/>staticcheck · deadcode · Docker build"]
+  ci1 --> merge["Merge to main"]
+  merge --> ci2["CI on main"]
+  ci2 -- "passes" --> rw["Railway<br/>builds the Dockerfile"]
+  rw --> prod["hobbs.up.railway.app<br/>hobbs -http :8080 -nms-url (staging)<br/>secrets: Railway variables"]
 ```
 
 ## 5. Detailed design
