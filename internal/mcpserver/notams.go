@@ -138,25 +138,87 @@ func notamsHandler(ctx context.Context, d Deps, in NotamsInput) (*mcp.CallToolRe
 		}
 	}
 
+	res, err := collectNotams(ctx, d, base, locs, in.AddCenters == nil || *in.AddCenters)
+	if err != nil {
+		return toolError("%v", err)
+	}
 	now := d.Now().UTC()
-	data := notamData{Filters: newFilters(), NOTAMs: []model.Notam{}, OmittedFields: []string{}}
+	data := notamData{Filters: newFilters(), Locations: res.Locations, NOTAMs: res.NOTAMs, OmittedFields: []string{}}
+	if res.Applied != nil {
+		data.Filters.AppliedBySource = res.Applied
+	}
+	issues, sources := res.Issues, res.Sources
+
+	// The caller's explicit shaping choices.
+	if in.Limit != nil && len(data.NOTAMs) > *in.Limit {
+		issues = append(issues, truncationIssue(len(data.NOTAMs), *in.Limit))
+		data.NOTAMs = data.NOTAMs[:*in.Limit]
+		// Per-source counts reflect what is actually in the response.
+		returned := map[string]int{}
+		for _, n := range data.NOTAMs {
+			for _, l := range n.ReturnedFor {
+				returned[l]++
+			}
+		}
+		for i := range sources {
+			if sources[i].ID == nms.SourceID {
+				sources[i].RecordsReturned = len(data.NOTAMs)
+			} else {
+				sources[i].RecordsReturned = returned[strings.TrimPrefix(sources[i].ID, nms.SourceID+":")]
+			}
+		}
+	}
+	if in.IncludeGeometry != nil && !*in.IncludeGeometry {
+		for i := range data.NOTAMs {
+			data.NOTAMs[i].Geometry, data.NOTAMs[i].GeometryDerivation = nil, nil
+		}
+		data.OmittedFields = append(data.OmittedFields, "geometry")
+	}
+	return respond(d, data, now, sources, res.NotConsulted, issues, res.Failed == res.Queries)
+}
+
+// notamResult is what collectNotams gathered: the merged NOTAMs and everything
+// the provenance envelope needs. It applies no caller shaping (limit,
+// geometry); callers do that on NOTAMs and then fix RecordsReturned.
+type notamResult struct {
+	NOTAMs       []model.Notam     // merged in query order, each NOTAM once, ReturnedFor set
+	Locations    *locationsInfo    // nil when the call used no locations
+	Applied      map[string]string // filters the FAA applied, including "location"; nil when the source is not enabled
+	Sources      []provenance.Source
+	Issues       []provenance.Issue
+	NotConsulted []provenance.NotConsulted
+	Failed       int // queries that failed
+	Queries      int // queries made; 0 when the source is not enabled
+}
+
+// collectNotams asks the FAA once per location (or once, when locs is [""]),
+// optionally adds the en-route centers the FAA lists on those NOTAMs and asks
+// for them too, and merges the results so a NOTAM returned by several queries
+// appears once. Per-source RecordsReturned counts the merged records. With
+// d.NMS nil it returns the not-enabled entry and critical issue and makes no
+// query. The error is non-nil only for nms.ErrBadQuery.
+func collectNotams(ctx context.Context, d Deps, base nms.Query, locs []string, addCenters bool) (notamResult, error) {
+	now := d.Now().UTC()
+	res := notamResult{NOTAMs: []model.Notam{}}
 	if locs[0] != "" {
-		data.Locations = &locationsInfo{Requested: locs, Added: []addedCenter{}, Note: centersNotInferred}
+		res.Locations = &locationsInfo{Requested: locs, Added: []addedCenter{}, Note: centersNotInferred}
 	}
 
 	if d.NMS == nil {
 		// The NOTAM source is not enabled: say so rather than return an empty list.
-		return respond(d, data, now, nil, []provenance.NotConsulted{{ID: nms.SourceID, Reason: notEnabled}}, []provenance.Issue{{
+		res.NotConsulted = []provenance.NotConsulted{{ID: nms.SourceID, Reason: notEnabled}}
+		res.Issues = []provenance.Issue{{
 			Code: provenance.SourceNotEnabled, Severity: provenance.Critical, Source: nms.SourceID,
 			Message: notEnabledText,
-		}}, true)
+		}}
+		return res, nil
 	}
 
 	fetches := run(ctx, d.NMS, base, locs)
 	var issues []provenance.Issue
-	if data.Locations != nil && (in.AddCenters == nil || *in.AddCenters) {
+	if res.Locations != nil && addCenters {
 		added, missing := impliedCenters(fetches, locs)
-		data.Locations.Added = added
+		res.Locations.Added = added
 		issues = append(issues, missing...)
 		extra := make([]string, len(added))
 		for i, a := range added {
@@ -172,7 +234,7 @@ func notamsHandler(ctx context.Context, d Deps, in NotamsInput) (*mcp.CallToolRe
 	for _, f := range fetches {
 		if f.err != nil {
 			if errors.Is(f.err, nms.ErrBadQuery) {
-				return toolError("%v", f.err)
+				return notamResult{}, f.err
 			}
 			s := f.snap.Source
 			s.ID = f.sourceID()
@@ -189,41 +251,29 @@ func notamsHandler(ctx context.Context, d Deps, in NotamsInput) (*mcp.CallToolRe
 			k := notamKey(n)
 			i, seen := index[k]
 			if !seen {
-				i = len(data.NOTAMs)
+				i = len(res.NOTAMs)
 				index[k] = i
-				data.NOTAMs = append(data.NOTAMs, n)
+				res.NOTAMs = append(res.NOTAMs, n)
 			}
 			if f.location != "" {
-				data.NOTAMs[i].ReturnedFor = append(data.NOTAMs[i].ReturnedFor, f.location)
+				res.NOTAMs[i].ReturnedFor = append(res.NOTAMs[i].ReturnedFor, f.location)
 			}
 		}
 	}
 
-	data.Filters.AppliedBySource = base.Applied()
-	if data.Locations != nil {
+	res.Applied = base.Applied()
+	if res.Locations != nil {
 		all := locs
-		for _, a := range data.Locations.Added {
+		for _, a := range res.Locations.Added {
 			all = append(all, a.Location)
 		}
-		data.Filters.AppliedBySource["location"] = strings.Join(all, ",")
+		res.Applied["location"] = strings.Join(all, ",")
 	}
 
-	// The caller's explicit shaping choices.
-	if in.Limit != nil && len(data.NOTAMs) > *in.Limit {
-		issues = append(issues, truncationIssue(len(data.NOTAMs), *in.Limit))
-		data.NOTAMs = data.NOTAMs[:*in.Limit]
-	}
-	if in.IncludeGeometry != nil && !*in.IncludeGeometry {
-		for i := range data.NOTAMs {
-			data.NOTAMs[i].Geometry, data.NOTAMs[i].GeometryDerivation = nil, nil
-		}
-		data.OmittedFields = append(data.OmittedFields, "geometry")
-	}
-
-	// Each successful query's source, with how many of its records made it
-	// into the response.
+	// Each successful query's source, with how many of its records are in
+	// the merged result.
 	returned := map[string]int{}
-	for _, n := range data.NOTAMs {
+	for _, n := range res.NOTAMs {
 		for _, l := range n.ReturnedFor {
 			returned[l]++
 		}
@@ -236,11 +286,12 @@ func notamsHandler(ctx context.Context, d Deps, in NotamsInput) (*mcp.CallToolRe
 		s.ID = f.sourceID()
 		s.RecordsReturned = returned[f.location]
 		if f.location == "" {
-			s.RecordsReturned = len(data.NOTAMs)
+			s.RecordsReturned = len(res.NOTAMs)
 		}
 		sources = append(sources, s)
 	}
-	return respond(d, data, now, sources, nil, issues, failed == len(fetches))
+	res.Sources, res.Issues, res.Failed, res.Queries = sources, issues, failed, len(fetches)
+	return res, nil
 }
 
 // run queries the FAA once per location, concurrently, keeping the order.

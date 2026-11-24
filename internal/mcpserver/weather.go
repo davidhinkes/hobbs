@@ -83,39 +83,20 @@ func weatherHandler(ctx context.Context, d Deps, in WeatherInput) (*mcp.CallTool
 		return toolError("%v", err)
 	}
 
-	type result struct {
-		snap source.Snapshot[model.Advisory]
-		err  error
-	}
-	res := make([]result, len(feeds))
-	parallel(len(feeds), func(i int) {
-		res[i].snap, res[i].err = feeds[i].get(d.AWC).Fetch(ctx)
-	})
-
+	col := collectAdvisories(ctx, d, feeds)
 	now := d.Now().UTC()
 	data := weatherData{Filters: newFilters(), Advisories: []model.Advisory{}, KindsQueried: []string{}, OmittedFields: []string{}}
 	if hazard != "" {
 		data.Filters.AppliedByServer["hazard"] = hazard
 	}
-	var sources []provenance.Source
-	var issues []provenance.Issue
-	failed := 0
-	for i, f := range feeds {
+	sources, issues := col.Sources, col.Issues
+	for _, f := range feeds {
 		data.KindsQueried = append(data.KindsQueried, f.kind)
-		r := res[i]
-		if r.err != nil {
-			s, is := failure(r.snap.Source, f.get(d.AWC).ID(), r.err, now)
-			sources, issues = append(sources, s), append(issues, is)
-			failed++
-			continue
-		}
-		for _, a := range r.snap.Items {
+		for _, a := range col.ByKind[f.kind] {
 			if hazard == "" || strings.EqualFold(a.Hazard, hazard) {
 				data.Advisories = append(data.Advisories, a)
 			}
 		}
-		sources = append(sources, r.snap.Source)
-		issues = append(issues, r.snap.Issues...)
 	}
 
 	// The caller's explicit shaping choices.
@@ -138,5 +119,44 @@ func weatherHandler(ctx context.Context, d Deps, in WeatherInput) (*mcp.CallTool
 		sources[i].RecordsReturned = returned[sources[i].ID]
 	}
 
-	return respond(d, data, now, sources, nil, issues, failed == len(feeds))
+	return respond(d, data, now, sources, nil, issues, col.Failed == col.Queries)
+}
+
+// advisoryResult is what collectAdvisories gathered, before any caller filter.
+type advisoryResult struct {
+	ByKind  map[string][]model.Advisory // records per feed kind, in the source's order; absent for a feed that failed
+	Sources []provenance.Source         // in feed order, failed feeds included; RecordsReturned is not set
+	Issues  []provenance.Issue
+	Failed  int // feeds that failed
+	Queries int // feeds asked
+}
+
+// collectAdvisories fetches the given feeds in parallel from the AWC. A feed
+// that fails gets a source entry and an issue and no records; the others are
+// unaffected.
+func collectAdvisories(ctx context.Context, d Deps, feeds []weatherFeed) advisoryResult {
+	type result struct {
+		snap source.Snapshot[model.Advisory]
+		err  error
+	}
+	res := make([]result, len(feeds))
+	parallel(len(feeds), func(i int) {
+		res[i].snap, res[i].err = feeds[i].get(d.AWC).Fetch(ctx)
+	})
+
+	now := d.Now().UTC()
+	out := advisoryResult{ByKind: map[string][]model.Advisory{}, Queries: len(feeds)}
+	for i, f := range feeds {
+		r := res[i]
+		if r.err != nil {
+			s, is := failure(r.snap.Source, f.get(d.AWC).ID(), r.err, now)
+			out.Sources, out.Issues = append(out.Sources, s), append(out.Issues, is)
+			out.Failed++
+			continue
+		}
+		out.ByKind[f.kind] = r.snap.Items
+		out.Sources = append(out.Sources, r.snap.Source)
+		out.Issues = append(out.Issues, r.snap.Issues...)
+	}
+	return out
 }
