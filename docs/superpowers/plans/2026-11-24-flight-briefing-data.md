@@ -1,5 +1,7 @@
 # get_flight_briefing_data Implementation Plan
 
+**Status: executed, 2026-11-24** (commits `04edcbf`..`ec943ae` on `claude/nifty-einstein-2wh075`; the checkboxes below were not ticked). Kept as a dated record and not updated further: `docs/DESIGN.md` is the source of truth, and where they differ, DESIGN.md wins.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** One MCP tool, `get_flight_briefing_data`, that takes ICAO airports (plus optional en-route centers) and returns NOTAMs, METARs, TAFs and the four AWC advisory sets in one provenance envelope, replacing `get_notams` and `get_weather_advisories`.

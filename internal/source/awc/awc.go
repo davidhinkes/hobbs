@@ -4,7 +4,8 @@
 // (fetched per station, see Client.METARs and Client.TAFs).
 //
 // Behavior here is based on observed responses (docs/DESIGN.md §5.5):
-//   - "no results" is HTTP 204 with an empty body; 400 is a bad parameter.
+//   - "no results" is HTTP 204 with an empty body for the advisory feeds and
+//     METARs (TAF differs, below); 400 is a bad parameter.
 //   - upstream filters are unreliable, so the advisory feeds are fetched whole
 //     and filtering is left to the caller. The station feeds (METAR, TAF)
 //     are the exception: AWC's own "ids" filter is used and works, so only

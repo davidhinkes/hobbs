@@ -17,6 +17,7 @@ An MCP server (Go) that makes official US aviation data available to AI agents: 
   - `README.md`: what it is, the tools, how to run, host and develop it;
   - `docs/DESIGN.md`: requirements and user flows (§3), the high-level design and its diagram (§4), how each part behaves and why (§5), including what the upstream services were observed to do (§5.5, dated); open items (§8); the decisions log (§9): **major** decisions only (API, scope, architecture, and approaches that did not work), each with its date, its reason and **the alternatives considered and why they lost**, added when the decision is made; process and tooling details belong here in `CLAUDE.md`, not in the log;
   - `CLAUDE.md`: how to work here;
+  - `docs/superpowers/specs/` and `docs/superpowers/plans/`: dated design and implementation-plan records for a change, written before it was built. They are history, not kept current: once the change is in, `docs/DESIGN.md` holds what lasts, and where they differ, DESIGN.md wins;
   - the tool descriptions and package comments in the code: what each part does.
 
   Keep all of these consistent with each other. Draw diagrams in Mermaid (a `mermaid` code block, which GitHub renders), not ASCII art, so they stay readable and editable as text.
