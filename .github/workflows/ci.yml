@@ -1,0 +1,52 @@
+# Checks every pull request and every push to main. Railway can wait for
+# this workflow before deploying ("wait for CI"; see CLAUDE.md).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: gofmt
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then echo "not gofmt'ed:"; echo "$out"; exit 1; fi
+
+      - name: vet
+        run: go vet ./...
+
+      - name: build
+        run: go build ./...
+
+      - name: test (offline, fixtures only)
+        run: go test ./...
+
+      - name: staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@2026.2.2
+          "$(go env GOPATH)/bin/staticcheck" ./...
+
+      - name: deadcode (only the expected, kept items)
+        run: |
+          go install golang.org/x/tools/cmd/deadcode@v0.53.0
+          "$(go env GOPATH)/bin/deadcode" -f '{{range .Funcs}}{{$.Path}}.{{.Name}}{{"\n"}}{{end}}' ./cmd/hobbs | sort > /tmp/deadcode.txt
+          sort .github/deadcode-expected.txt | diff -u - /tmp/deadcode.txt
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: build the image Railway deploys
+        run: docker build -t hobbs:ci .

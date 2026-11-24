@@ -1,0 +1,4 @@
+github.com/davidhinkes/hobbs/internal/model.TFR.Validate
+github.com/davidhinkes/hobbs/internal/source.NotEnabled
+github.com/davidhinkes/hobbs/internal/source/nms.Disabled.Fetch
+github.com/davidhinkes/hobbs/internal/source/nms.Disabled.ID

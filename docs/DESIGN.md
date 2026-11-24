@@ -237,7 +237,7 @@ Input errors come back as `isError` results with a message the agent can act on,
 - **The FAA's center association is loose**: a center's query can return TFRs far outside it (Worcester, MA under ZDC; Oregon, OH under ZLA; SPIKE.md). It errs toward more data, which is the safe direction; watch it on production.
 - AWC documented rate limit and terms of use.
 - An external uptime alert for the hosted endpoint.
-- **Railway auto-deploy is off** (found 2026-11-24): the Railway GitHub App is not installed for `davidhinkes/hobbs`, so Railway refuses to enable auto-deploy (`NO_INSTALLATION`) and pushes to `main` are never seen. Fix: the maintainer grants the app access to the repo in GitHub; then enable auto-deploy on `main` with wait-for-CI off, and confirm a merge deploys on its own.
+- **Railway auto-deploy is off** (found 2026-11-24): the Railway GitHub App is not installed for `davidhinkes/hobbs`, so Railway refuses to enable auto-deploy (`NO_INSTALLATION`) and pushes to `main` are never seen. Fix: the maintainer grants the app access to the repo in GitHub; then enable auto-deploy on `main` with wait-for-CI on (CI exists, §8), and confirm a merge deploys on its own.
 
 ## 8. Decisions log
 
@@ -263,3 +263,4 @@ Dated, newest last. Each says what was decided and why, so a later session does 
 | 2026-11-23 | `location` (singular) replaced by `locations` | one way to do it |
 | 2026-11-23 | `.mcp.json` registers the hosted endpoint as the `hobbs` MCP server | end-to-end testing through a real MCP client |
 | 2026-11-23 | **End-to-end tests run only against the hosted production service**, through the `hobbs` MCP tools; not a locally run server | maintainer's instruction: that is what end-to-end means here |
+| 2026-11-24 | GitHub Actions CI on every pull request and push to `main`: gofmt, vet, build, offline tests, staticcheck, deadcode against an expected list, Docker build; Railway to wait for it before deploying | catch breakage before it ships; the deploy only takes commits that pass |

@@ -81,6 +81,8 @@ go test -tags live ./...                          # also against the live source
 go test -tags tfrlive ./internal/source/tfr       # the switched-off TFR adapter against tfr.faa.gov
 ```
 
+CI (`.github/workflows/ci.yml`) runs gofmt, `go vet`, the build, the offline tests, `staticcheck`, `deadcode` and a Docker build on every pull request and every push to `main`.
+
 The TFR adapter (`internal/source/tfr`) is kept but turned off: nothing calls it, a client refuses to fetch unless `Enabled` is set, and its live test is only built with `-tags tfrlive`.
 
 Design and the decisions log: `docs/DESIGN.md` (§8). What the upstream services actually do: `docs/SPIKE.md`. Working notes for Claude Code sessions: `CLAUDE.md`.
