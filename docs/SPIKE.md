@@ -1,7 +1,9 @@
 # Endpoint spike findings
 
-Run 2026-11-22 against live services. Fixtures are in `testdata/`.
+Started 2026-11-22 against live services; later sections carry their own dates. Fixtures are in `testdata/`.
 Everything here was observed, not assumed. Re-verify before relying on it; the TFR endpoints in particular are undocumented.
+
+This is a record of what the sources do. Some early conclusions here were later overruled by the design (notably: filtering and caching ourselves, and a `check_route` tool); those spots are marked **Superseded**. `docs/DESIGN.md` is authoritative for what the server does, and its §8 lists the decisions.
 
 ## AWC (aviationweather.gov) — NOAA, no key
 
@@ -15,7 +17,7 @@ Base: `https://aviationweather.gov/api/data/<name>?format=json`
 | `cwa` | 2 | max-age=60 | Center Weather Advisories |
 
 - Plain JSON, ETag present, no auth. No rate-limit headers seen; AWC documents a limit (verify and honor it). Honor `Cache-Control` for polling cadence.
-- **Server-side filters are unreliable.** `hazard=` filtered correctly (`hazard=turb` -> empty), but `bbox=` and `type=` were **ignored** on `airsigmet` (`bbox=0,0,1,1` still returned a NC SIGMET). Do all spatial/type filtering ourselves; fetch whole feeds and cache.
+- **Server-side filters are unreliable.** `hazard=` filtered correctly (`hazard=turb` -> empty), but `bbox=` and `type=` were **ignored** on `airsigmet` (`bbox=0,0,1,1` still returned a NC SIGMET). Fetch whole feeds. (**Superseded:** the early idea to filter spatially ourselves and cache was dropped; we return full feeds, filter only by exact match on a published field, and have no cache. DESIGN.md §2, §4.)
 - Timestamp formats are inconsistent: epoch seconds (`validTimeFrom`, `issueTime`), ISO strings (`receiptTime`, `validTime`). Need per-feed decoding.
 - Altitudes: `airsigmet` uses feet (`altitudeHi1`, nullable); `gairmet` uses `level`/`top`/`base`/`fzltop`; `isigmet`/`cwa` use `base`/`top`. All nullable. Null must mean "unknown", never zero.
 - Coordinates: `[{lat, lon}]`. In `gairmet`/`cwa` the values are **strings**; in `airsigmet`/`isigmet` numbers. `gairmet` `geom` can be `LINE` (e.g. freezing level), not just polygons: lines don't have an inside.
@@ -75,6 +77,24 @@ Caveats and side findings:
 
 Consequence: radius search is not an area filter. An agent searching around a point or along a route will miss NOTAMs whose area reaches the point but whose reference point is farther away than the radius. Covering a route with circles cannot be made provably complete, because a NOTAM's area has no upper bound (Q-line radius 999 means a whole region), and text-only NOTAMs have no point at all.
 
+### Location filter: airports, centers and navaids (2026-11-23)
+
+All against staging, through the real server.
+
+- **Most NOTAMs hang off an identifier, not an area.** Of 1,409 NOTAMs within 100 nm of 38.95N 77.45W: 84% have an airport or facility identifier as `location`, 16% an en-route center (`KZDC`). Shapes are small: 57% are circles of 5 nm or less, 30% bare points, 12% small polygons (taxiway or apron boxes); only 2 areas are wider than 10 nm.
+- **Airport identifiers in either form work**: `KIAD` and `IAD` return the same 213 NOTAMs (including 41 FDC: approach and departure procedure changes for the airport).
+- **Centers work as a location**: `ZDC` and `KZDC` return the same 185 NOTAMs: TFRs, restricted areas going active, airway changes, special security instructions. `ZLA` returned 124 to 125.
+- **Each NOTAM names its center** in `affectedFir` (our `fir`), as `ZLA` or `KZLA`. Every airport tried pointed to one center (KSMO, KEMT, KHHR, KLAS: ZLA; KPHX: ZAB; KSFO: ZOA; KDEN: ZDV; KIAD, KADW: ZDC), but many records leave it empty (about half at small fields; 17 of 322 at KPHX). This is what `add_centers` reads.
+- **The center association is loose.** `ZDC` returned a Worcester, MA TFR (Boston Center's area); `ZLA` returned an Oregon, OH TFR (`6/7104`). It errs toward more.
+- **Navaid identifiers return airport NOTAMs.** `SMO` returned the KSMO airport NOTAMs (not the Santa Monica VORTAC); `PDZ` (Paradise VORTAC) returned Ontario (KONT) airport NOTAMs; `LAX` returned both the airport and the VORTAC.
+- **The same restriction appears twice** with different ids: an FDC NOTAM and its international copy (e.g. `6/1960` and `A2420/26` for the Middleburg, VA TFR; `6/3894` and `A4862/26` for V16). Both are returned.
+- **Cancellations are returned** as records with `type` `C` (16 of 163 on the KSMO to KPSP test).
+- **Vertical limits are often empty** in the structured fields although the Q-line states them: KEMT `11/008` (a tower light) has `lower`/`upper` unknown while its Q-line reads `000/008` (surface to FL008) and its text says 782.8 FT.
+
+### Hosted end-to-end test (2026-11-23)
+
+Through the production endpoint `https://hobbs.up.railway.app/mcp`, as an MCP client: `source_status` reported the NOTAM source `ok` (staging, 321 ms; the Railway credentials work) and all four AWC feeds `ok`. `get_notams` with `locations: ["KSMO", "KPSP", "KTRM"]` added `ZLA` (listed on all three) and returned 163 NOTAMs (KSMO 7, KPSP 26, KTRM 5, ZLA 125) in about 1 s, status `degraded` (not airworthy, plus schedule, parse and altitude flags), no query failed; 210 KB of JSON, 435 KB on the wire because each result is sent as text and as structured content.
+
 ### TFR site blocks this client (2026-11-23)
 
 The TFR adapter (`internal/source/tfr`) was built and tested against captured fixtures, and its detail format was verified by hand with `curl`. When the Go adapter itself called `tfr.faa.gov` live, the site answered **HTTP 403 "Access Denied"**, including for the list endpoint that `curl` had fetched successfully. That is an access control on the FAA's edge, not a bug we can fix in the parser. We did not try to get around it (varying headers or connection settings to look like another client): this is an undocumented endpoint and the block reads as intentional. Consequences:
@@ -113,7 +133,7 @@ No, not as data. The documented AWC Data API (`aviationweather.gov/data/schema/o
 
 Of 47 TFRs:
 
-- **12 (all `SECURITY`/`SPECIAL`) have no vertices at all.** They are text-only (e.g. stadium special-security instructions, "3 NMR of any qualifying stadium"). They apply by rule, not by polygon. **They must never be silently dropped**: surface them as `geometry: none` with full text, and have `check_route` report them as "not evaluable spatially".
+- **12 (all `SECURITY`/`SPECIAL`) have no vertices at all.** They are text-only (e.g. stadium special-security instructions, "3 NMR of any qualifying stadium"). They apply by rule, not by polygon. **They must never be silently dropped**: surface them with no geometry and full text, flagged `GEOMETRY_UNAVAILABLE`. (**Superseded:** there is no `check_route`.)
 - 25 contain `valRadius` (circles) and 5 contain `geoLatArc`; 4 contain `CWA` (clockwise arcs). These are rough substring counts, not parsed results: confirm with a real parser.
 - 5 have multiple `TFRAreaGroup`s and 6 TFRs have 2-5 `aseTFRArea`s (separate altitude blocks and shapes).
 - Vertices are written as `39.35990574N` / `077.03638889W` strings (not signed decimals).
@@ -123,6 +143,8 @@ Of 47 TFRs:
 - A TFR can be a `Replace` / update chain; check `Add`/`Replace`/`Delete` handling.
 
 ## Consequences for the design
+
+These were the spike's first conclusions (2026-11-22). **Superseded in part:** items 1, 2 and 7 assumed caching, local filtering and route checks, all dropped (DESIGN.md §0, §4, §8); item 3 became the `GEOMETRY_UNAVAILABLE` flag rather than a `geometry_status` field. Items 4, 5 and 6 hold.
 
 1. **Fetch whole feeds and filter locally.** Upstream filters can't be trusted. Poll on `Cache-Control` cadence (60-180s for AWC); cache is small, so memory is fine.
 2. **TFR adapter = list + N detail fetches.** Poll the list, fetch XML only for new/changed IDs (`mod_abs_time`), cache by ID. List has no geometry, so a list-only result would be useless for `check_route`.
@@ -136,6 +158,7 @@ Of 47 TFRs:
 
 - AWC's actual rate limit and terms of use.
 - FAA terms for programmatic use/redistribution of `tfr.faa.gov` (undocumented endpoints, could change without notice).
-- NOTAMs (needs NMS credentials; not testable here).
+- NMS **production**: everything above about NOTAMs is from staging. Volumes, the center association and the TFR geometry gap may differ in production.
+- NMS rate limits (none seen).
 - Navaid-relative (`Frd`) vertex resolution: need a navaid dataset, or skip and flag such TFRs as `partial`.
 - `Delete`/`Replace` semantics across updates.

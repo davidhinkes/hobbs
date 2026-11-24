@@ -6,6 +6,8 @@ An MCP server that makes official US aviation data available to AI agents: NOAA 
 
 The server only makes data available (uniform, consistent, available). It does not decide what is relevant to a flight; see `docs/DESIGN.md` §0.
 
+**Hosted:** `https://hobbs.up.railway.app/mcp` (Streamable HTTP, open, no authentication). It serves NOTAMs from the FAA's **staging** environment, so every response says `"airworthy": false`.
+
 ## Tools
 
 | Tool | What it does |
@@ -15,6 +17,14 @@ The server only makes data available (uniform, consistent, available). It does n
 | `source_status` | Live health of each source |
 
 There is no TFR tool yet: no official, usable TFR source exists (`docs/SPIKE.md`). TFRs appear in `get_notams` as FDC NOTAMs (text and dates, not outlines).
+
+For a flight, list the airports; the en-route center the FAA lists on their NOTAMs is added, and centers in between are not inferred:
+
+```json
+{ "name": "get_notams", "arguments": { "locations": ["KSMO", "KPSP", "KTRM"], "include_geometry": false } }
+```
+
+A `latitude`/`longitude`/`radius_nm` search matches each NOTAM's reference point, not its area, so it is not an area filter.
 
 ## Run it
 
@@ -35,7 +45,7 @@ HOBBS_NMS_CLIENT_ID=... HOBBS_NMS_CLIENT_SECRET=... ./hobbs -http :8080 -nms-url
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `-http` | (stdio) | Listen address for Streamable HTTP, e.g. `:8080`; on Railway use `-http :$PORT` |
+| `-http` | (stdio) | Listen address for Streamable HTTP, e.g. `:8080` |
 | `-airworthy` | `false` | Declares responses usable for flight planning and navigation. By default every response says `"airworthy": false`, carries a `NOT_AIRWORTHY` warning (so nothing reads as complete), and the tool descriptions say so. Accepted only without `-nms-url` or with the FAA's production NMS-API URL (`https://api-nms.aim.faa.gov`); any other server, staging included, counts as test data |
 | `-nms-url` | (NOTAMs off) | NMS-API server for NOTAMs, scheme and host only. Staging is `https://api-staging.cgifederal-aim.com` |
 | `-rate` | `5` | HTTP only: global request rate limit, requests per second (bursts up to twice that); an error without `-http` |
@@ -67,10 +77,10 @@ The repo's `.mcp.json` registers the hosted endpoint (`https://hobbs.up.railway.
 
 ```sh
 go test ./...                                     # offline, uses captured fixtures in testdata/
-go test -tags live ./...                          # also against the live sources (NOTAM tests need the NMS_* secrets)
+go test -tags live ./...                          # also against the live sources (NOTAM tests need HOBBS_NMS_CLIENT_ID/SECRET)
 go test -tags tfrlive ./internal/source/tfr       # the switched-off TFR adapter against tfr.faa.gov
 ```
 
 The TFR adapter (`internal/source/tfr`) is kept but turned off: nothing calls it, a client refuses to fetch unless `Enabled` is set, and its live test is only built with `-tags tfrlive`.
 
-Design: `docs/DESIGN.md`. What the upstream services actually do: `docs/SPIKE.md`.
+Design and the decisions log: `docs/DESIGN.md` (§8). What the upstream services actually do: `docs/SPIKE.md`. Working notes for Claude Code sessions: `CLAUDE.md`.
