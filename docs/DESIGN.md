@@ -52,7 +52,7 @@ Rules that follow:
 3. **Never say "none" unless it is true.** An empty result is only returned as a clean "nothing found" when `completeness.status == "complete"`. Otherwise the empty result is accompanied by the issues that make it untrustworthy.
 4. **Report what was not checked**, not only what was. Sources that were skipped, disabled, or failed appear in the response.
 5. **Degrade, don't hide.** Stale cache, partial parses and missing geometry are returned and flagged. They are never dropped or silently patched.
-6. **Raw official text is always carried alongside parsed fields**, in a separate field, treated as untrusted data (see §6).
+6. **Raw official text is always carried alongside parsed fields**, in a separate field (`raw_text`), treated as untrusted data (see §6). Where a source publishes no text (G-AIRMETs), or a record cannot be parsed, `raw_text` holds the source's own record verbatim instead, and `raw_format` says which (`official_text` or `upstream_json`).
 
 ### Response envelope
 

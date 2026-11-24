@@ -1,9 +1,11 @@
-// Package nms will adapt the FAA NOTAM Management Service API.
+// Package nms adapts the FAA NOTAM Management Service API (NMS-API).
 //
-// The NMS-API is not publicly documented and needs credentials from the FAA
-// (request via the link on faa.gov/about/initiatives/notam). Until access is
-// granted this adapter is disabled: it fetches nothing, and responses report
-// the source as not consulted so results are marked incomplete.
+// The API is documented by an OpenAPI spec the FAA provides with credentials
+// (it is not public); access is requested via faa.gov/about/initiatives/notam.
+// Client queries it (staging or production, by host); behavior follows
+// observed responses (docs/SPIKE.md). With no -nms-url the server has no
+// Client, and NOTAM responses report the source as not consulted, so they are
+// marked incomplete.
 package nms
 
 import (
@@ -16,7 +18,8 @@ import (
 // SourceID identifies this source in provenance.
 const SourceID = "faa.nms.notam"
 
-// Disabled is the placeholder adapter used until FAA access exists.
+// Disabled is an adapter that fetches nothing. The server does not use it
+// (it has no Client when NOTAMs are off); it is kept by the maintainer's choice.
 type Disabled struct{}
 
 var _ source.Source[model.Notam] = Disabled{}
