@@ -88,7 +88,7 @@ func registerBriefing(srv *mcp.Server, d Deps) {
 			"Each NOTAM's raw_text is its ICAO rendering (raw_format icao_notam) when the FAA supplied one, else the US domestic one (us_notam); any other rendering is in translations. " +
 			"NOTAMs for temporary flight restrictions appear as FDC NOTAMs with their text and dates, but the FAA's TFR outlines are not available from this source, so their geometry may be missing or only a point. " +
 			"METARs and TAFs are returned as published by AWC (raw_format metar or taf), with AWC's decoded fields in details; fltCat in a report's details is AWC's flight category, not computed by hobbs. A requested airport with no report is flagged STATION_NO_DATA. " +
-			"The advisories are the full national sets, not filtered by airport or route. translation shows exactly what each source was asked and which parts of the input it did not use. " +
+			"The advisories are the full national sets, not filtered by airport or route. translation lists, per source, the parameters sent for the airports and centers given and which parts of the input it did not use; the implied centers the server adds for NOTAMs are named under locations.added and in provenance, not in translation. " +
 			"Geometry is left out unless include_geometry is true; omitted_fields then lists it. Nothing is ranked, summarized or dropped, and nothing is decided about what applies to the flight." + reliance),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in BriefingInput) (*mcp.CallToolResult, any, error) {
 		return briefingHandler(ctx, d, in)

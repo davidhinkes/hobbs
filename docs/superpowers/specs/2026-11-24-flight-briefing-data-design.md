@@ -1,6 +1,6 @@
 # One tool for a flight: `get_flight_briefing_data` (design)
 
-Date: 2026-11-24. Status: **approved by the maintainer, 2026-11-24**; the time window was then dropped (§6), also by the maintainer. It replaces an earlier proposal for a separate `get_weather_metar_taf` tool (same date, withdrawn by the maintainer: METARs and TAFs go into this single interface instead). Once built, the parts that last move into `docs/DESIGN.md` (§1, §3, §4, §5, §6, §8, §9), `README.md` and `CLAUDE.md`, as `CLAUDE.md` requires, and this file is deleted or marked superseded.
+Date: 2026-11-24. Status: **implemented, 2026-11-24** (commits `04edcbf`..`6a6ba81`, documented in the commit "Document get_flight_briefing_data, METARs and TAFs"). **`docs/DESIGN.md` is now the source of truth**; this file is kept as the design record and is not updated further. It was approved by the maintainer on 2026-11-24; the time window was then dropped (§6), also by the maintainer. It replaces an earlier proposal for a separate `get_weather_metar_taf` tool (same date, withdrawn by the maintainer: METARs and TAFs go into this single interface instead). Once built, the parts that last move into `docs/DESIGN.md` (§1, §3, §4, §5, §6, §8, §9), `README.md` and `CLAUDE.md`, as `CLAUDE.md` requires, and this file is deleted or marked superseded.
 
 ## 1. Intent
 
