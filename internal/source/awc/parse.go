@@ -276,7 +276,7 @@ func parseAirSigmet(src string, raw json.RawMessage) (model.Advisory, *note) {
 		Issuer: string(r.ICAOID), Hazard: string(r.Hazard),
 		IssuedAt: tptr(r.CreationTime), ValidFrom: tptr(r.ValidFrom), ValidTo: tptr(r.ValidTo),
 		Lower: model.Unknown(), Upper: model.Unknown(),
-		RawText: r.Raw, RawFormat: model.RawOfficialText,
+		RawText: r.Raw, RawFormat: model.RawAdvisoryText,
 	}
 	if a.IssuedAt == nil {
 		a.IssuedAt = tptr(r.ReceiptTime)
@@ -360,7 +360,7 @@ func parseGAirmet(src string, raw json.RawMessage) (model.Advisory, *note) {
 		IssuedAt: tptr(r.IssueTime), ValidFrom: tptr(r.ValidTime), ValidTo: tptr(r.ExpireTime),
 		Lower: model.Unknown(), Upper: model.Unknown(),
 		// G-AIRMET publishes no advisory text; keep the upstream record verbatim.
-		RawText: string(raw), RawFormat: model.RawUpstreamJSON,
+		SourceRecord: model.SourceRecord(raw),
 	}
 	if a.IssuedAt == nil {
 		a.IssuedAt = tptr(r.ReceiptTime)
@@ -428,7 +428,7 @@ func parseIntlSigmet(src string, raw json.RawMessage) (model.Advisory, *note) {
 		Issuer: string(r.ICAOID), Hazard: string(r.Hazard), Qualifier: string(r.Qualifier),
 		IssuedAt: tptr(r.ReceiptTime), ValidFrom: tptr(r.ValidFrom), ValidTo: tptr(r.ValidTo),
 		Lower: model.Unknown(), Upper: model.Unknown(),
-		RawText: r.Raw, RawFormat: model.RawOfficialText,
+		RawText: r.Raw, RawFormat: model.RawAdvisoryText,
 	}
 	detail(&a, "fir_id", &r.FIRID)
 	detail(&a, "fir_name", &r.FIRName)
@@ -482,7 +482,7 @@ func parseCWA(src string, raw json.RawMessage) (model.Advisory, *note) {
 		Issuer: string(r.CWSU), Hazard: string(r.Hazard), Qualifier: string(r.Qualifier),
 		IssuedAt: tptr(r.ReceiptTime), ValidFrom: tptr(r.ValidFrom), ValidTo: tptr(r.ValidTo),
 		Lower: model.Unknown(), Upper: model.Unknown(),
-		RawText: r.Raw, RawFormat: model.RawOfficialText,
+		RawText: r.Raw, RawFormat: model.RawAdvisoryText,
 	}
 	detail(&a, "cwsu_name", &r.Name)
 	if r.Top != nil {

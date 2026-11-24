@@ -2,6 +2,7 @@ package awc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -90,7 +91,7 @@ func TestAirSigmetFixture(t *testing.T) {
 	if a.Geometry == nil || a.Geometry.Type != model.GeomPolygon || len(a.Geometry.Polygons[0][0]) != 5 {
 		t.Errorf("geometry = %+v", a.Geometry)
 	}
-	if a.RawFormat != model.RawOfficialText || !strings.Contains(a.RawText, "CONVECTIVE SIGMET 43E") {
+	if a.RawFormat != model.RawAdvisoryText || !strings.Contains(a.RawText, "CONVECTIVE SIGMET 43E") || a.SourceRecord != nil {
 		t.Errorf("raw text not preserved: %q", a.RawText)
 	}
 	if a.ValidFrom == nil || a.ValidTo == nil || !a.ValidTo.After(*a.ValidFrom) {
@@ -117,8 +118,9 @@ func TestGAirmetFixture(t *testing.T) {
 		if a.Geometry != nil && a.Geometry.Type == model.GeomLineString {
 			lines++
 		}
-		if a.RawFormat != model.RawUpstreamJSON || a.RawText == "" {
-			t.Fatalf("%s: raw = %q/%s", a.ID, a.RawText, a.RawFormat)
+		// G-AIRMETs publish no text: no raw_text, the record in source_record.
+		if a.RawText != "" || a.RawFormat != "" || !json.Valid(a.SourceRecord) || !strings.Contains(string(a.SourceRecord), `"hazard"`) {
+			t.Fatalf("%s: raw = %q/%s, source_record = %.40s", a.ID, a.RawText, a.RawFormat, a.SourceRecord)
 		}
 		if a.ValidFrom == nil || a.ValidTo == nil {
 			t.Fatalf("%s: missing window", a.ID)
@@ -302,8 +304,8 @@ func TestBadRecordsAreFlaggedNotDropped(t *testing.T) {
 	if a := byID(t, snap, "KKCI 1A #2"); a.RawText != "DUP" {
 		t.Errorf("duplicate IDs must be disambiguated, not overwritten: %+v", a)
 	}
-	// Undecodable time: the whole record decodes as a stub with the raw JSON.
-	if a := byID(t, snap, "awc.airsigmet#1"); a.RawFormat != model.RawUpstreamJSON || !strings.Contains(a.RawText, "garbage") || len(a.ParseIssues) == 0 {
+	// Undecodable time: the whole record decodes as a stub with the source record.
+	if a := byID(t, snap, "awc.airsigmet#1"); a.RawText != "" || a.RawFormat != "" || !strings.Contains(string(a.SourceRecord), "garbage") || len(a.ParseIssues) == 0 {
 		t.Errorf("stub = %+v", a)
 	}
 	// Out-of-range coordinate: geometry dropped, flagged, raw kept.
@@ -312,8 +314,8 @@ func TestBadRecordsAreFlaggedNotDropped(t *testing.T) {
 	} else if a.ValidFrom != nil || a.ValidTo != nil {
 		t.Errorf("reversed window must be discarded, not served: %v %v", a.ValidFrom, a.ValidTo)
 	}
-	// Missing official text: falls back to upstream JSON and says so.
-	if a := byID(t, snap, "KKCI 4A"); a.RawFormat != model.RawUpstreamJSON || a.RawText == "" {
+	// Missing official text: no raw_text or raw_format; the source record kept, flagged.
+	if a := byID(t, snap, "KKCI 4A"); a.RawText != "" || a.RawFormat != "" || len(a.SourceRecord) == 0 || len(a.ParseIssues) == 0 {
 		t.Errorf("4A = %+v", a)
 	}
 	pf := issue(snap, provenance.ParseFailed)
@@ -534,12 +536,12 @@ func TestGeometryEdgeCases(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			body := `[{"icaoId":"X","seriesId":"1","rawSigmet":"RAW","geom":` + tt.geom + `,"coords":` + tt.coords + `}]`
 			a := fetch(t, serve(t, 200, []byte(body)).IntlSigmet()).Items[0]
-			if a.RawText == "" {
-				t.Fatal("raw text must always survive")
+			if a.RawText == "" && len(a.SourceRecord) == 0 {
+				t.Fatal("raw text or the source record must always survive")
 			}
 			got := "none"
 			if tt.wantKind == "decode-failure" {
-				if a.RawFormat != model.RawUpstreamJSON || len(a.ParseIssues) == 0 {
+				if len(a.SourceRecord) == 0 || a.RawText != "" || len(a.ParseIssues) == 0 {
 					t.Errorf("undecodable coords must become a flagged stub: %+v", a)
 				}
 				return

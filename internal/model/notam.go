@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -8,7 +9,8 @@ import (
 
 // Notam is a normalized NOTAM. It uses only standard ICAO NOTAM concepts so it
 // does not depend on any one upstream's schema. RawText is the official
-// text exactly as received and is never altered or summarized.
+// text exactly as received and is never altered or summarized; a record
+// without it carries the source's own record in SourceRecord.
 type Notam struct {
 	// ID is the NOTAM identifier as issued, e.g. "FDC 6/9306" or "A1234/26".
 	ID string `json:"id"`
@@ -47,18 +49,19 @@ type Notam struct {
 	// (for NMS, with the domestic keyword, e.g. "SVC ..."). It is not
 	// necessarily identical to ICAO item E, which omits the keyword.
 	Text string `json:"text,omitempty"`
-	// RawText is the complete NOTAM text as the source rendered it, unaltered
-	// (the ICAO rendering when both exist). Always present. RawFormat says
-	// whether it is NOTAM text or, as a last resort, the upstream record.
-	RawText   string    `json:"raw_text"`
-	RawFormat RawFormat `json:"raw_format"`
-	// RawTextFormat names the rendering RawText holds (e.g. "ICAO",
-	// "LOCAL_FORMAT"); empty when RawFormat is upstream_json.
-	RawTextFormat string `json:"raw_text_format,omitempty"`
+	// RawText is the complete NOTAM text as the source rendered it, unaltered:
+	// the ICAO rendering when there is one, else the US domestic one.
+	// RawFormat says which (icao_notam or us_notam). Both are empty only when
+	// the source supplied no text in a format we recognize.
+	RawText   string    `json:"raw_text,omitempty"`
+	RawFormat RawFormat `json:"raw_format,omitempty"`
 	// Translations are the other text renderings the source supplied, besides
 	// the one in RawText, unaltered. RawText plus Translations is every
 	// rendering, each exactly once. Empty when there is only one.
 	Translations []Translation `json:"translations,omitempty"`
+	// SourceRecord is the source's own record, verbatim, when there is no
+	// RawText or the record could not be parsed or validated.
+	SourceRecord json.RawMessage `json:"source_record,omitempty"`
 
 	// NMSID is the source's stable unique identifier; ID alone (the NOTAM
 	// number) is not unique across locations.
@@ -79,9 +82,11 @@ type Notam struct {
 	ParseIssues []string `json:"parse_issues,omitempty"`
 }
 
-// Translation is one text rendering of a NOTAM.
+// Translation is one text rendering of a NOTAM. Format uses the RawFormat
+// names (icao_notam, us_notam) for the formats we recognize; any other keeps
+// the source's own label.
 type Translation struct {
-	Format string `json:"format"` // e.g. "ICAO", "LOCAL_FORMAT"
+	Format string `json:"format"`
 	Text   string `json:"text"`
 }
 
@@ -104,11 +109,8 @@ func (n Notam) Validate() error {
 	if n.ID == "" {
 		return errors.New("notam: id is required")
 	}
-	if n.RawText == "" {
-		return fmt.Errorf("notam %s: raw_text is required", n.ID)
-	}
-	if n.RawFormat != RawOfficialText && n.RawFormat != RawUpstreamJSON {
-		return fmt.Errorf("notam %s: invalid raw_format %q", n.ID, n.RawFormat)
+	if err := validateText("notam", n.ID, n.RawText, n.RawFormat, []RawFormat{RawICAONotam, RawUSNotam}, n.SourceRecord); err != nil {
+		return err
 	}
 	if n.EffectiveFrom != nil && n.EffectiveTo != nil && n.EffectiveTo.Before(*n.EffectiveFrom) {
 		return fmt.Errorf("notam %s: effective_to before effective_from", n.ID)

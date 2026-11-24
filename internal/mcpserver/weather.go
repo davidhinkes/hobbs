@@ -45,7 +45,7 @@ func registerWeather(srv *mcp.Server, d Deps) {
 		Name:        "get_weather_advisories",
 		Annotations: readOnly("Weather advisories (SIGMET, AIRMET, CWA)"),
 		Description: d.describe("Returns the complete current set of US and international weather advisories published by the NOAA Aviation Weather Center: SIGMET, graphical AIRMET, international SIGMET and center weather advisories. " +
-			"The source offers no usable area filter, so each set is returned in full, as published, with canonical GeoJSON geometry (positions are [longitude, latitude]), raw advisory text where the source gives it, and the original validity times. " +
+			"The source offers no usable area filter, so each set is returned in full, as published, with canonical GeoJSON geometry (positions are [longitude, latitude]), the advisory text as issued in raw_text where the source gives it (graphical AIRMETs publish none: their source record is in source_record), and the original validity times. " +
 			"The server does not decide which advisories apply to a flight, time, altitude or place; that is for the caller." + reliance),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in WeatherInput) (*mcp.CallToolResult, any, error) {
 		return weatherHandler(ctx, d, in)

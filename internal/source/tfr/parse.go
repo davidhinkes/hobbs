@@ -305,17 +305,14 @@ func parseDetail(raw []byte, t *model.TFR, n *note) error {
 		t.Details = det
 	}
 
-	// Text: the USNS rendering is the primary, in RawText; the others stay in
-	// Translations, so each rendering appears exactly once.
-	var all []model.Translation
-	for _, r := range []struct{ format, text string }{{"USNS", x.USNS}, {"TRADITIONAL", x.Traditonal}} {
-		if clean(r.text) != "" {
-			all = append(all, model.Translation{Format: r.format, Text: clean(r.text)})
-		}
+	// Text: the USNS (US domestic) rendering goes in RawText as us_notam; the
+	// TRADITIONAL rendering, which has no RawFormat name, keeps the feed's
+	// label in Translations. Each rendering appears exactly once.
+	if usns := clean(x.USNS); usns != "" {
+		t.RawText, t.RawFormat = usns, model.RawUSNotam
 	}
-	if len(all) > 0 {
-		t.RawText, t.RawTextFormat, t.RawFormat = all[0].Text, all[0].Format, model.RawOfficialText
-		t.Translations = model.Others(all, 0)
+	if trad := clean(x.Traditonal); trad != "" {
+		t.Translations = append(t.Translations, model.Translation{Format: "TRADITIONAL", Text: trad})
 	}
 
 	// Areas: each altitude block joined to its published outline by area id.

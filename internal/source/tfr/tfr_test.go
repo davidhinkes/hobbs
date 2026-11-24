@@ -165,12 +165,12 @@ func TestFixtureTFRs(t *testing.T) {
 		t.Fatalf("items=%d feed=%d", len(snap.Items), snap.Source.RecordsInFeed)
 	}
 	for _, x := range snap.Items {
-		if !x.DetailRetrieved || x.RawFormat != model.RawOfficialText || !strings.HasPrefix(x.RawText, "!FDC "+x.ID) {
+		if !x.DetailRetrieved || x.RawFormat != model.RawUSNotam || x.SourceRecord != nil || !strings.HasPrefix(x.RawText, "!FDC "+x.ID) {
 			t.Errorf("%s: detail=%v raw=%.30q", x.ID, x.DetailRetrieved, x.RawText)
 		}
 		// USNS in RawText; only the other rendering in Translations.
-		if x.RawTextFormat != "USNS" || len(x.Translations) != 1 || x.Translations[0].Format != "TRADITIONAL" || x.Translations[0].Text == x.RawText {
-			t.Errorf("%s: raw_text_format=%q translations=%v", x.ID, x.RawTextFormat, x.Translations)
+		if len(x.Translations) != 1 || x.Translations[0].Format != "TRADITIONAL" || x.Translations[0].Text == x.RawText {
+			t.Errorf("%s: translations=%v", x.ID, x.Translations)
 		}
 		if x.Regulation != "99.7" {
 			t.Errorf("%s: regulation = %q", x.ID, x.Regulation)
@@ -355,7 +355,7 @@ func TestDetailFailuresKeepTheTFR(t *testing.T) {
 	}
 	for _, id := range []string{"4/9383", "5/3678"} {
 		x := byID(t, snap.Items, id)
-		if x.DetailRetrieved || x.RawFormat != model.RawUpstreamJSON || !strings.Contains(x.RawText, `"notam_id"`) || len(x.ParseIssues) == 0 {
+		if x.DetailRetrieved || x.RawText != "" || x.RawFormat != "" || !strings.Contains(string(x.SourceRecord), `"notam_id"`) || len(x.ParseIssues) == 0 {
 			t.Errorf("%s: %+v", id, x)
 		}
 		if x.Type == "" || x.Facility == "" || x.Description == "" {

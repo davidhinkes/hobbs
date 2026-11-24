@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -14,17 +15,6 @@ const (
 	KindAIRMET     AdvisoryKind = "AIRMET"      // US AIRMET (G-AIRMET snapshots)
 	KindIntlSIGMET AdvisoryKind = "INTL_SIGMET" // international SIGMET
 	KindCWA        AdvisoryKind = "CWA"         // Center Weather Advisory
-)
-
-// RawFormat says what RawText contains.
-type RawFormat string
-
-const (
-	// RawOfficialText is the official advisory text as issued.
-	RawOfficialText RawFormat = "official_text"
-	// RawUpstreamJSON is the upstream's JSON record verbatim, used when the
-	// upstream publishes no text (G-AIRMET) or the record could not be parsed.
-	RawUpstreamJSON RawFormat = "upstream_json"
 )
 
 // Advisory is a normalized weather advisory (SIGMET, AIRMET, CWA).
@@ -55,8 +45,14 @@ type Advisory struct {
 	// freezing-level range, ...), kept as the upstream stated them.
 	Details map[string]string `json:"details,omitempty"`
 
-	RawText   string    `json:"raw_text"`
-	RawFormat RawFormat `json:"raw_format"`
+	// RawText is the advisory text as issued, unaltered; RawFormat is then
+	// advisory_text. Both are empty when the source published no text
+	// (G-AIRMETs).
+	RawText   string    `json:"raw_text,omitempty"`
+	RawFormat RawFormat `json:"raw_format,omitempty"`
+	// SourceRecord is the source's own record, verbatim, when there is no
+	// published text or the record could not be parsed.
+	SourceRecord json.RawMessage `json:"source_record,omitempty"`
 
 	// ParseIssues lists fields that could not be parsed. Such records are
 	// still returned, never dropped.
@@ -72,12 +68,11 @@ func (a Advisory) Validate() error {
 		return fmt.Errorf("advisory %s: kind is required", a.ID)
 	case a.Source == "":
 		return fmt.Errorf("advisory %s: source is required", a.ID)
-	case a.RawText == "":
-		return fmt.Errorf("advisory %s: raw_text is required", a.ID)
-	case a.RawFormat != RawOfficialText && a.RawFormat != RawUpstreamJSON:
-		return fmt.Errorf("advisory %s: invalid raw_format %q", a.ID, a.RawFormat)
 	case a.ValidFrom != nil && a.ValidTo != nil && a.ValidTo.Before(*a.ValidFrom):
 		return fmt.Errorf("advisory %s: valid_to before valid_from", a.ID)
+	}
+	if err := validateText("advisory", a.ID, a.RawText, a.RawFormat, []RawFormat{RawAdvisoryText}, a.SourceRecord); err != nil {
+		return err
 	}
 	for _, alt := range []Altitude{a.Lower, a.Upper} {
 		if err := alt.Validate(); err != nil {

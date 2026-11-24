@@ -6,7 +6,7 @@ import (
 )
 
 func validAdvisory() Advisory {
-	return Advisory{ID: "KKCI 43E", Kind: KindSIGMET, Source: "awc.airsigmet", RawText: "x", RawFormat: RawOfficialText,
+	return Advisory{ID: "KKCI 43E", Kind: KindSIGMET, Source: "awc.airsigmet", RawText: "x", RawFormat: RawAdvisoryText,
 		Lower: Unknown(), Upper: FL(370), ValidFrom: tp(t0), ValidTo: tp(t1)}
 }
 
@@ -23,7 +23,10 @@ func TestAdvisoryValidate(t *testing.T) {
 			g := NewPolygons([][][]Position{ccw, {{{5, 5}, {6, 5}, {6, 6}, {5, 6}, {5, 5}}}})
 			a.Geometry = &g
 		},
-		"upstream json raw": func(a *Advisory) { a.RawFormat = RawUpstreamJSON },
+		"source record only": func(a *Advisory) {
+			a.RawText, a.RawFormat, a.SourceRecord = "", "", []byte(`{"hazard":"ICE"}`)
+		},
+		"text and source record": func(a *Advisory) { a.SourceRecord = []byte(`{"x":1}`) },
 	}
 	for name, mut := range ok {
 		t.Run("ok "+name, func(t *testing.T) {
@@ -35,11 +38,16 @@ func TestAdvisoryValidate(t *testing.T) {
 		})
 	}
 	bad := map[string]func(*Advisory){
-		"no id":           func(a *Advisory) { a.ID = "" },
-		"no kind":         func(a *Advisory) { a.Kind = "" },
-		"no source":       func(a *Advisory) { a.Source = "" },
-		"no raw":          func(a *Advisory) { a.RawText = "" },
-		"bad raw format":  func(a *Advisory) { a.RawFormat = "" },
+		"no id":              func(a *Advisory) { a.ID = "" },
+		"no kind":            func(a *Advisory) { a.Kind = "" },
+		"no source":          func(a *Advisory) { a.Source = "" },
+		"no text, no record": func(a *Advisory) { a.RawText, a.RawFormat = "", "" },
+		"format, no text":    func(a *Advisory) { a.RawText, a.SourceRecord = "", []byte(`{}`) },
+		"text, no format":    func(a *Advisory) { a.RawFormat = "" },
+		"notam format":       func(a *Advisory) { a.RawFormat = RawICAONotam },
+		"invalid record": func(a *Advisory) {
+			a.RawText, a.RawFormat, a.SourceRecord = "", "", []byte(`{not json`)
+		},
 		"window reversed": func(a *Advisory) { a.ValidTo = tp(t0.Add(-time.Hour)) },
 		"zero-value alt":  func(a *Advisory) { a.Upper = Altitude{} },
 		"empty geometry":  func(a *Advisory) { a.Geometry = &Geometry{} },

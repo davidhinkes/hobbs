@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/davidhinkes/hobbs/internal/model"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -966,5 +967,19 @@ func TestSharedParametersAreDescribedTheSame(t *testing.T) {
 		if n == "" || n != w {
 			t.Errorf("%s is described differently:\n get_notams: %q\n get_weather_advisories: %q", name, n, w)
 		}
+	}
+}
+
+func TestNotamKeyKeepsDifferentStubsApart(t *testing.T) {
+	// A stub's id is only its position in one query, so two different records
+	// that failed to parse in two location queries can share it. They must not
+	// merge into one (that would drop a record).
+	a := model.Notam{ID: "faa.nms.notam#3", SourceRecord: []byte(`{"n":1}`)}
+	b := model.Notam{ID: "faa.nms.notam#3", SourceRecord: []byte(`{"n":2}`)}
+	if notamKey(a) == notamKey(b) {
+		t.Error("different source records under the same stub id share a key")
+	}
+	if notamKey(a) != notamKey(model.Notam{ID: a.ID, SourceRecord: []byte(`{"n":1}`)}) {
+		t.Error("the same record must keep the same key")
 	}
 }

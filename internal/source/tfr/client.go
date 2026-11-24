@@ -233,8 +233,8 @@ func (c *Client) Fetch(ctx context.Context, f Filter) (source.Snapshot[model.TFR
 		t := r.tfr
 		raw, _ := json.Marshal(wanted[i])
 		if !t.DetailRetrieved || t.RawText == "" {
-			// Keep the list entry verbatim as the raw record.
-			t.RawText, t.RawFormat = string(raw), model.RawUpstreamJSON
+			// Keep the list entry verbatim as the source record.
+			t.SourceRecord = model.SourceRecord(raw)
 		}
 		if r.fetch != nil || r.parse != nil {
 			t.DetailRetrieved = false
@@ -275,7 +275,7 @@ func (c *Client) Fetch(ctx context.Context, f Filter) (source.Snapshot[model.TFR
 			}
 		}
 		if err := t.Validate(); err != nil {
-			t = model.TFR{ID: fmt.Sprintf("%s#%d", SourceID, i), RawText: string(raw), RawFormat: model.RawUpstreamJSON,
+			t = model.TFR{ID: fmt.Sprintf("%s#%d", SourceID, i), SourceRecord: model.SourceRecord(raw),
 				ParseIssues: append(t.ParseIssues, "record failed validation: "+err.Error())}
 			parseFail = append(parseFail, t.ID)
 		}
