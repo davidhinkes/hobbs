@@ -14,15 +14,15 @@ import (
 //go:embed guide.md
 var guideText string
 
-// GuideInput has no fields.
-type GuideInput struct{}
+// GuideInput takes no arguments; it is a map so that a client which sends a
+// dummy argument still gets the guide instead of a validation error.
+type GuideInput map[string]any
 
 // registerGuide adds get_briefing_guide.
 //
 // Its response is plain text, not a provenance envelope: the guide is hobbs's
 // own advice on method, not data from a source, and provenance.New refuses an
-// envelope with no source (docs/superpowers/specs/2026-11-25-briefing-guide-design.md
-// §5.1). It still carries the NOT AIRWORTHY sentence when the server is not
+// envelope with no source (docs/DESIGN.md §5.2). It still carries the NOT AIRWORTHY sentence when the server is not
 // airworthy. It advises on method only; the server still judges no record.
 func registerGuide(srv *mcp.Server, d Deps) {
 	ann := readOnly("How to brief a pilot with this server's data")

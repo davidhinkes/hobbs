@@ -589,8 +589,8 @@ func TestGeometryCanBeOmittedOnRequestAndSaysSo(t *testing.T) {
 	}
 }
 
-// Unless the server is airworthy, every response from every tool, including
-// error envelopes, says airworthy: false and carries NOT_AIRWORTHY, and the
+// Unless the server is airworthy, every data response, including error
+// envelopes, says airworthy: false and carries NOT_AIRWORTHY, and the
 // descriptions say so before anything is called.
 func TestAirworthyIsOnEveryResponse(t *testing.T) {
 	for _, airworthy := range []bool{false, true} {

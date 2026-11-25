@@ -78,7 +78,7 @@ US focus. International SIGMETs are included because AWC publishes them.
 
 **F1a. Brief a pilot** (since 2026-11-25). The agent calls `get_briefing_guide` once and follows it: it asks the pilot only what it does not know (departure and flight time, aircraft, VFR or IFR, altitude, route, alternates); it calls `get_flight_briefing_data` once with every airport that matters, including airports along the route that it chooses, and the en-route centers the route crosses in `centers`; it briefs only what could hurt or stop this flight, most serious first; it keeps three lines that are never cut (not airworthy, any failed or partial pull, no TFR outlines); and it closes with one line on how many records it set aside. The server does none of the judging (§2).
 
-**F2. Can I trust this answer?** In every response the agent reads `completeness.status` (only `complete` means a clean pull), the `issues`, `provenance.sources` (what was fetched, when, from where) and `airworthy`. To see why something was incomplete, it calls `source_status`, which checks every source live.
+**F2. Can I trust this answer?** In every data response the agent reads `completeness.status` (only `complete` means a clean pull), the `issues`, `provenance.sources` (what was fetched, when, from where) and `airworthy`. To see why something was incomplete, it calls `source_status`, which checks every source live.
 
 **F3. Connect a client.** A local client runs the binary over stdio. A remote client points at `https://hobbs.up.railway.app/mcp` (Streamable HTTP, open). Claude Code sessions on this repo load the hosted tools from `.mcp.json`.
 
@@ -88,7 +88,7 @@ US focus. International SIGMETs are included because AWC publishes them.
 
 | # | Requirement |
 |---|---|
-| R1 | Every response states its sources, retrieval times and every data-pull problem (§5.1). There is no data response without provenance; the guide tool's text is advice, not data, and is the one exception (§5.2). |
+| R1 | Every data response states its sources, retrieval times and every data-pull problem (§5.1). There is no data response without provenance; the guide tool's text is advice, not data, and is the one exception (§5.2). |
 | R2 | Never present an empty result as "none" unless the pull was clean (`completeness.status` = `complete`). |
 | R3 | Official sources only (FAA, NOAA); no third-party aggregators. Undocumented endpoints are labelled as such. |
 | R4 | Filter only with the source's own filters, and say who applied each filter (`applied_by_source` / `applied_by_server`). Today every filter is the source's own, shown in `translation` (§5.2), where each entry has both fields and `applied_by_server` is always empty. |
@@ -144,7 +144,7 @@ flowchart TB
 
 - **Transport.** stdio for a local client; Streamable HTTP for the hosted service, stateless, with a global rate limit and an open health check (§5.6).
 - **Tools** (`internal/mcpserver`). Three read-only tools: one data tool, `get_flight_briefing_data`, `source_status`, and `get_briefing_guide`, which returns embedded advice text and touches no source and no envelope. The data tool validates its input (bad requests are refused before anything is sent upstream), translates it into each source's own query, calls the source adapters in parallel, merges the results and applies the caller's shaping (`include`, `include_geometry`) (§5.2).
-- **The envelope** (`internal/provenance`). Every tool returns through one function, which builds the provenance envelope, derives the completeness status by rule and stamps `airworthy` and the disclaimer (§5.1).
+- **The envelope** (`internal/provenance`). Every data tool returns through one function, which builds the provenance envelope, derives the completeness status by rule and stamps `airworthy` and the disclaimer (§5.1).
 - **Source adapters** (`internal/source/...`). One per upstream. Each fetches, parses into the shared model (`internal/model`) and records data-pull problems as issues instead of dropping records. Shapes are translated into canonical GeoJSON by `internal/geo` (§5.3, §5.4, §5.5).
 - **The upstream services.** NOAA AWC (public, no key) and the FAA NMS-API (OAuth2; staging credentials today). The TFR adapter exists but is turned off and not linked into the binary.
 
@@ -249,7 +249,7 @@ Rules:
 
 ### 5.2 Tools
 
-Three tools, all read-only. The two data tools return the §5.1 envelope; `get_briefing_guide` returns plain text. Input errors come back as `isError` results with a message the agent can act on, and invalid requests never reach a source. A call that obtained no data at all (every source that was asked, or should have been, failed or is not enabled) returns `isError: true` together with the envelope; a partial failure returns the data plus a `critical` issue (`SOURCE_UNAVAILABLE`, or `SOURCE_NOT_ENABLED` for NOTAMs on a server without them) and status `incomplete`.
+Three tools, all read-only. `get_flight_briefing_data` and `source_status` return the §5.1 envelope; `get_briefing_guide` returns plain text. Input errors come back as `isError` results with a message the agent can act on, and invalid requests never reach a source. A call that obtained no data at all (every source that was asked, or should have been, failed or is not enabled) returns `isError: true` together with the envelope; a partial failure returns the data plus a `critical` issue (`SOURCE_UNAVAILABLE`, or `SOURCE_NOT_ENABLED` for NOTAMs on a server without them) and status `incomplete`.
 
 #### `get_flight_briefing_data`
 
@@ -334,7 +334,7 @@ Checks every source live: the four advisory feeds, the METAR and TAF services (o
 Added 2026-11-25 (§9). No input. Returns a short guide (about 300 words, Markdown) for briefing a general aviation pilot with this server's data: ask the pilot a few questions, fetch wide (including airports along the route and the en-route centers, which the agent chooses), brief only what could hurt or stop this flight, never cut the data-quality lines, and close with one line on what was left out. It gives no go/no-go advice, and when the agent is unsure whether a record matters it says to keep it in.
 
 - **Plain text, not an envelope.** The guide is the project's own advice on method, not data from a source, and `provenance.New` refuses an envelope with no source. When the server is not airworthy the text starts with the NOT AIRWORTHY sentence (the same one the tool descriptions carry). Every *data* response still carries the envelope (R1).
-- **Where the text lives:** `internal/mcpserver/guide.md`, embedded in the binary, so it reads and edits as a document. A test pins the tool and field names the guide uses (`get_flight_briefing_data`, `centers`, `completeness.status`, `airworthy`), so renaming one breaks the build.
+- **Where the text lives:** `internal/mcpserver/guide.md`, embedded in the binary, so it reads and edits as a document. A test pins the tool and field names the guide uses (`get_flight_briefing_data`, `centers`, `completeness.status`, `airworthy`), so renaming one breaks the build. The tool has no input (extra arguments are ignored, not rejected), carries no `reliance` text, and is annotated read-only and not open-world, since it reaches nothing outside the server.
 - **How an agent finds it:** one sentence, `Before briefing a pilot, call get_briefing_guide once and follow it.`, in the server instructions and in the description of `get_flight_briefing_data`. The guide itself is not in those texts, so it costs nothing in a conversation that is not a briefing (the alternatives are in §9).
 - **Scope:** it advises on method only. The server still labels, ranks, filters and drops no record (§2); the agent applies the judgment, and the risk that a bad cut hides a record from a pilot is accepted and answered by the guide's rules (§2).
 
@@ -431,8 +431,8 @@ The design depends on how each upstream actually behaves. These facts were obser
   - `-rate` HTTP requests per second, default 5, with bursts up to twice that.
   - `-airworthy`, below.
 - **stdio** (the default) for a local MCP client.
-- **Streamable HTTP:** stateless, JSON responses (no streaming), at `/mcp`, with an open `/healthz`; `GET /mcp` is 405. It is open, with no authentication, and the global rate limit guards upstream quotas. Every tool result is sent twice, as text and as structured content (the MCP spec recommends both), so the wire size is about double the JSON: a 163-NOTAM result was 210 KB of JSON and 435 KB on the wire.
-- **Airworthy** (`-airworthy`, false by default). Every envelope has an `airworthy` field: whether the response may be used for flight planning and navigation. By default it is `false`, every response also carries a `NOT_AIRWORTHY` warning (so nothing reads as complete), and the server instructions and every tool description start with "NOT AIRWORTHY". `-airworthy` is accepted only without NOTAMs or with the FAA's production NMS-API URL; any other `-nms-url`, staging included, counts as test data. Airworthy is necessary, not sufficient: it does not make the data complete or correct.
+- **Streamable HTTP:** stateless, JSON responses (no streaming), at `/mcp`, with an open `/healthz`; `GET /mcp` is 405. It is open, with no authentication, and the global rate limit guards upstream quotas. Every envelope result is sent twice, as text and as structured content (the MCP spec recommends both; the guide's text is sent once, as text), so the wire size is about double the JSON: a 163-NOTAM result was 210 KB of JSON and 435 KB on the wire.
+- **Airworthy** (`-airworthy`, false by default). Every envelope has an `airworthy` field: whether the response may be used for flight planning and navigation. By default it is `false`, every envelope also carries a `NOT_AIRWORTHY` warning (so nothing reads as complete), the guide text starts with the NOT AIRWORTHY sentence, and the server instructions and every tool description start with "NOT AIRWORTHY". `-airworthy` is accepted only without NOTAMs or with the FAA's production NMS-API URL; any other `-nms-url`, staging included, counts as test data. Airworthy is necessary, not sufficient: it does not make the data complete or correct.
 - **Hosted on Railway** (project and service `hobbs`, region sfo). It builds the `Dockerfile` (Go 1.25 build stage, a non-root runtime on Alpine) and deploys on every push to `main` once CI has passed. Start command: `/usr/local/bin/hobbs -http :8080 -nms-url https://api-staging.cgifederal-aim.com`. Public domain `hobbs.up.railway.app` on port 8080; health check `/healthz`. The NMS credentials are Railway service variables.
 
 ### 5.7 Code layout
@@ -462,7 +462,7 @@ testdata/              captured upstream responses, used only by tests
 
 ## 7. Safety and trust
 
-- **No guarantees.** The service is provided as is, with no warranty. We make a best effort to replicate official data faithfully and say plainly when we could not. Every response carries the disclaimer (`provenance.Disclaimer`), and tool descriptions repeat it.
+- **No guarantees.** The service is provided as is, with no warranty. We make a best effort to replicate official data faithfully and say plainly when we could not. Every envelope carries the disclaimer (`provenance.Disclaimer`), and tool descriptions repeat it. The guide's text carries no disclaimer; its tool description says it is advice written by this project, not FAA or NWS data.
 - **Not presented as FAA data.** The NMS-API Terms of Service allow redistribution but say redistributed information may not be characterized as FAA data. The disclaimer says the data is a best-effort copy, not FAA or NWS data as published, and not endorsed. Sources are still named for provenance.
 - **Advisory only.** The FAA briefing channels remain the legal standard.
 - **Source text is untrusted.** NOTAM, advisory, METAR and TAF text is returned in `raw_text` and `translations`, and source records in `source_record`, never merged into summaries; tool descriptions say all three are data, not instructions.
@@ -506,7 +506,7 @@ Add an entry when a major decision is made; when one is reversed, add a new entr
 | Date | Decision | Why | Alternatives considered (and why not) |
 |---|---|---|---|
 | 2026-11-22 | Go, official MCP Go SDK; stdio and Streamable HTTP | maintainer's choice; the SDK handles the protocol | Python or TypeScript SDKs: maintainer chose Go. Hand-written protocol code: the SDK is the reference implementation and tracks spec versions |
-| 2026-11-22 | Provenance on every response, through one constructor; status derived by rule (§5.1) | agents read absence as "none"; that mistake must be impossible by accident | Bare data, or provenance as optional metadata: an omission would read as "nothing found". Status set by each handler: inconsistent, easy to get wrong |
+| 2026-11-22 | Provenance on every response, through one constructor (narrowed on 2026-11-25 to every *data* response: the guide tool's text is advice, §5.2); status derived by rule (§5.1) | agents read absence as "none"; that mistake must be impossible by accident | Bare data, or provenance as optional metadata: an omission would read as "nothing found". Status set by each handler: inconsistent, easy to get wrong |
 | 2026-11-22 | Promise is as-is, best effort, no warranty; not characterized as FAA data (§7) | NMS terms; we cannot guarantee completeness | Promising a faithful, complete replica of FAA data: cannot be guaranteed, and the NMS terms forbid presenting redistributed data as FAA data |
 | 2026-11-22 | Principles §2: make the data available, uniform, consistent; no relevance, route or applicability logic in this layer | "what happens if we miss something": opinionated logic belongs in higher layers | A `check_route` tool, relevance ranking or "applies / does not apply" labels (proposed early): a bug in our logic would silently hide the record that mattered |
 | 2026-11-22 | One canonical geometry (RFC 7946 GeoJSON), translations recorded, approximations overstate (§5.4) | uniform shapes; a translation error must show as extra data, not a miss | Passing each source's shapes through as published (circles, AWC point lists, extended longitudes): every agent would need per-source handling. Inscribed or exact-chord circle polygons: understate the area, so an error would hide data |

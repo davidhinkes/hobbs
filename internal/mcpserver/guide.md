@@ -6,7 +6,7 @@ The pilot needs a short briefing. A long one does not get read, so what you leav
 Ask only for what you do not already know: departure time and flight time, aircraft, VFR or IFR, cruise altitude, route, alternates. One short message.
 
 ## 2. Fetch wide
-Call get_flight_briefing_data once with every airport that matters: departure, destination, alternates, and airports along the route (up to 10, ICAO identifiers). Put the en-route centers the route crosses in `centers`; the server does not work these out. Read `completeness.status` and the issues before anything else.
+Call get_flight_briefing_data once with every airport that matters: departure, destination, alternates, and airports along the route (ICAO identifiers; up to 10 airports and centers together per call, so split the request if you need more). Put the en-route centers the route crosses in `centers`; the server does not work these out. Read `completeness.status` and the issues before anything else.
 
 ## 3. Brief short
 Report only what could hurt or stop this flight, most serious first:

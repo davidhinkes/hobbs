@@ -1,12 +1,12 @@
 # hobbs
 
-An MCP server that makes official US aviation data available to AI agents: NOTAMs from the FAA NOTAM Management Service, and METARs, TAFs and weather advisories (SIGMET, AIRMET, international SIGMET, CWA) from the NOAA Aviation Weather Center, for a flight's airports in one call. Every response carries its sources, retrieval times and any problems with the data pull, so an agent can tell a genuine "none" from a failure.
+An MCP server that makes official US aviation data available to AI agents: NOTAMs from the FAA NOTAM Management Service, and METARs, TAFs and weather advisories (SIGMET, AIRMET, international SIGMET, CWA) from the NOAA Aviation Weather Center, for a flight's airports in one call. Every data response carries its sources, retrieval times and any problems with the data pull, so an agent can tell a genuine "none" from a failure.
 
 **Provided as is, with no warranty or guarantee.** It is a best-effort copy of data from the sources listed in each response and may be incomplete, delayed or wrong. It is not FAA or NWS data as published and is not endorsed by either. It is advisory only and not an official briefing: consult official sources before flight.
 
 The server only makes data available (uniform, consistent, available). It does not decide what is relevant to a flight; see `docs/DESIGN.md` §2.
 
-**Hosted:** `https://hobbs.up.railway.app/mcp` (Streamable HTTP, open, no authentication). It serves NOTAMs from the FAA's **staging** environment, so every response says `"airworthy": false`.
+**Hosted:** `https://hobbs.up.railway.app/mcp` (Streamable HTTP, open, no authentication). It serves NOTAMs from the FAA's **staging** environment, so every data response says `"airworthy": false`.
 
 ## Tools
 
@@ -46,7 +46,7 @@ HOBBS_NMS_CLIENT_ID=... HOBBS_NMS_CLIENT_SECRET=... ./hobbs -http :8080 -nms-url
 | Flag | Default | Meaning |
 |---|---|---|
 | `-http` | (stdio) | Listen address for Streamable HTTP, e.g. `:8080` |
-| `-airworthy` | `false` | Declares responses usable for flight planning and navigation. By default every response says `"airworthy": false`, carries a `NOT_AIRWORTHY` warning (so nothing reads as complete), and the tool descriptions say so. Accepted only without `-nms-url` or with the FAA's production NMS-API URL (`https://api-nms.aim.faa.gov`); any other server, staging included, counts as test data |
+| `-airworthy` | `false` | Declares responses usable for flight planning and navigation. By default every data response says `"airworthy": false`, carries a `NOT_AIRWORTHY` warning (so nothing reads as complete), and the tool descriptions say so. Accepted only without `-nms-url` or with the FAA's production NMS-API URL (`https://api-nms.aim.faa.gov`); any other server, staging included, counts as test data |
 | `-nms-url` | (NOTAMs off) | NMS-API server for NOTAMs, scheme and host only. Staging is `https://api-staging.cgifederal-aim.com` |
 | `-rate` | `5` | HTTP only: global request rate limit, requests per second (bursts up to twice that); an error without `-http` |
 
