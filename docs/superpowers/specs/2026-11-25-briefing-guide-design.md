@@ -1,6 +1,6 @@
 # A briefing guide served by the server: `get_briefing_guide` (design)
 
-Date: 2026-11-25. Status: **proposed, awaiting the maintainer's approval.** Once built, `docs/DESIGN.md` is the source of truth and this file is kept as the design record.
+Date: 2026-11-25. Status: **approved by the maintainer, 2026-11-25** (§5.1's response form was changed after approval, while planning; see there). Once built, `docs/DESIGN.md` is the source of truth and this file is kept as the design record.
 
 ## 1. Intent
 
@@ -49,7 +49,7 @@ It is still a change of scope (the server now ships briefing advice), and it mov
 
 `get_briefing_guide`: no input. Read-only. Returns the guide as Markdown text.
 
-The response goes through `respond`, like every tool: an envelope with `data.guide` holding the text, no sources (nothing is fetched), and the NOT AIRWORTHY mark when the server is not airworthy. (The builder's call: one rule for every response and no exception to explain; the mark comes with it.)
+The response is plain text, **not** a provenance envelope: the guide is hobbs's own advice, not data from a source, and `provenance.New` rightly refuses an envelope with no source. When the server is not airworthy, the text starts with the NOT AIRWORTHY sentence (the same `describe` prefix the tool descriptions use). The rule "every response carries provenance" becomes "every **data** response" in `docs/DESIGN.md` and `CLAUDE.md`. (The builder's call, changed on 2026-11-25 while planning: the design first said to use the envelope with no sources, which the provenance package does not allow; inventing a "source" for our own text would misuse provenance.)
 
 Its description is short: what it is, and "call it once before briefing a pilot". It does not carry the `reliance` text, which is about reading data.
 
@@ -104,7 +104,7 @@ KPAO → KTRK, 14:00Z, C172, VFR 9,500
 
 ## 6. Testing
 
-- Unit (`go test ./...`): the tool is listed (three tools now); its response is an envelope with the guide text and, when not airworthy, the mark; the guide names the real tool and input names (`get_flight_briefing_data`, `centers`, `completeness.status`, `airworthy`), so a rename breaks the test; the instructions and the data tool's description both name `get_briefing_guide`.
+- Unit (`go test ./...`): the tool is listed (three tools now); its response is the guide text, starting with the NOT AIRWORTHY sentence when the server is not airworthy and without it when it is; the guide names the real tool and input names (`get_flight_briefing_data`, `centers`, `completeness.status`, `airworthy`), so a rename breaks the test; the instructions and the data tool's description both name `get_briefing_guide`.
 - End to end, after merge and deploy, against the hosted server: call `get_briefing_guide`, then run a briefing in a fresh session and check the agent called the guide first and that the briefing has the shape in §5.4.
 
 ## 7. Docs to update with the change
