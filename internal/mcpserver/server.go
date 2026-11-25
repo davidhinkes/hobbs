@@ -62,6 +62,12 @@ func (d Deps) describe(s string) string {
 // tool's description, that sends an agent to get_briefing_guide.
 const guidePointer = "Before briefing a pilot, call get_briefing_guide once and follow it."
 
+// liveDataRule is the one sentence, in the server instructions and in the data
+// tool's description, that keeps an agent from fetching data that changes
+// (weather, NOTAMs, restrictions) from anywhere but this server (docs/DESIGN.md
+// §5.2, §9). Knowledge that does not go stale is allowed.
+const liveDataRule = "Data that changes (weather, NOTAMs, flight restrictions, airport, runway and navaid status) must come only from this server: do not fetch it from other websites, APIs or searches, and do not fill it in from memory, because other copies may be stale or unofficial. Background knowledge that does not go stale, such as where an airport is or what an identifier means, is fine. If something the pilot needs is not available here, say so and name the official source for the pilot to check; do not fetch it yourself."
+
 // reliance is appended to every data tool description (not the guide's, which
 // is advice, not data).
 const reliance = " Read completeness.status in every response before concluding anything is absent: only \"complete\" means the data pull had no problems, and an empty list is a genuine \"none\" only then. " +
@@ -78,7 +84,7 @@ func New(d Deps) (*mcp.Server, error) {
 		d.Now = time.Now
 	}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "hobbs", Version: Version}, &mcp.ServerOptions{
-		Instructions: d.describe("Makes official US aviation data available through one data tool, get_flight_briefing_data: for a flight's airports, NOTAMs from the FAA NOTAM Management Service, METARs and TAFs as published by the NOAA Aviation Weather Center, and the Aviation Weather Center's advisories (SIGMET, AIRMET, international SIGMET, CWA). source_status checks each source live. " + guidePointer + " " +
+		Instructions: d.describe("Makes official US aviation data available through one data tool, get_flight_briefing_data: for a flight's airports, NOTAMs from the FAA NOTAM Management Service, METARs and TAFs as published by the NOAA Aviation Weather Center, and the Aviation Weather Center's advisories (SIGMET, AIRMET, international SIGMET, CWA). source_status checks each source live. " + guidePointer + " " + liveDataRule + " " +
 			"It returns what the sources publish, with provenance and any data-pull problems; it does not decide relevance or what applies to a flight. TFR outlines are not available from an official API we can use, so there is no TFR tool."),
 	})
 	registerStatus(srv, d)

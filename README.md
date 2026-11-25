@@ -14,7 +14,7 @@ The server only makes data available (uniform, consistent, available). It does n
 |---|---|
 | `get_flight_briefing_data` | For a flight's airports (4-character ICAO identifiers, e.g. `KSMO`) and any en-route centers it also crosses: NOTAMs from the FAA NMS-API (the en-route center the FAA lists on the airports' NOTAMs is added), the latest METARs and TAFs from AWC, and the full current SIGMET / AIRMET / international SIGMET / CWA sets, each in its own sublist under one provenance envelope. `include` chooses the sublists (default all); `translation` shows the parameters sent to each source for the airports and centers given |
 | `source_status` | Live health of each source (the four advisory feeds, METAR, TAF, NOTAMs) |
-| `get_briefing_guide` | A short guide for an agent briefing a general aviation pilot with this data: what to ask, what to fetch, how to keep the briefing short, what never to cut. It is advice on method written by this project, not data, and the agent is told to call it first (`docs/DESIGN.md` §5.2) |
+| `get_briefing_guide` | A short guide for an agent briefing a general aviation pilot with this data: what to ask, what to fetch, how to keep the briefing short, what never to cut, and to take data that changes (weather, NOTAMs, restrictions) only from hobbs, never from other sites or memory. It is advice on method written by this project, not data, and the agent is told to call it first (`docs/DESIGN.md` §5.2) |
 
 There is no TFR tool yet: no official, usable TFR source exists (`docs/DESIGN.md` §5.5). TFRs appear in `get_flight_briefing_data`'s NOTAMs as FDC NOTAMs (text and dates, not outlines).
 
