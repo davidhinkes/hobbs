@@ -18,6 +18,15 @@ var guideText string
 // dummy argument still gets the guide instead of a validation error.
 type GuideInput map[string]any
 
+// guide is the guide text, led by the NOT AIRWORTHY sentence on a line of its
+// own when the server is not airworthy, so the guide's heading still renders.
+func (d Deps) guide() string {
+	if d.Airworthy {
+		return guideText
+	}
+	return notAirworthyText + "\n\n" + guideText
+}
+
 // registerGuide adds get_briefing_guide.
 //
 // Its response is plain text, not a provenance envelope: the guide is hobbs's
@@ -33,7 +42,7 @@ func registerGuide(srv *mcp.Server, d Deps) {
 		Description: d.describe("Returns hobbs's short guide to briefing a general aviation pilot with this server's data: what to ask the pilot, what to fetch, and how to cut the result to a short briefing without losing the data-quality warnings. Call it once before briefing a pilot. It is advice on method, written by the hobbs project, not data from the FAA or NWS, and it fetches nothing."),
 	}, func(context.Context, *mcp.CallToolRequest, GuideInput) (*mcp.CallToolResult, any, error) {
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: d.describe(guideText)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: d.guide()}},
 		}, nil, nil
 	})
 }

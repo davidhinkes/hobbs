@@ -17,7 +17,11 @@ func TestBriefingGuideIsReturnedAsText(t *testing.T) {
 			t.Fatalf("airworthy=%v: err=%v isError=%v", airworthy, err, res != nil && res.IsError)
 		}
 		got := text(res)
-		if want := (Deps{Airworthy: airworthy}).describe(guideText); got != want {
+		want := guideText
+		if !airworthy {
+			want = notAirworthyText + "\n\n" + guideText // the heading must start its own line
+		}
+		if got != want {
 			t.Errorf("airworthy=%v: response is not the whole guide (len %d, want %d)", airworthy, len(got), len(want))
 		}
 		if strings.HasPrefix(got, "NOT AIRWORTHY") == airworthy {
