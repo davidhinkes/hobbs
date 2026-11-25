@@ -44,3 +44,20 @@ func TestBriefingGuideIgnoresUnexpectedArguments(t *testing.T) {
 		t.Error("neither the guide nor an input error")
 	}
 }
+
+func TestInstructionsAndDataToolPointAtTheGuide(t *testing.T) {
+	cs := connect(t, newUpstreams(t).deps(t, true, true))
+	const want = "Before briefing a pilot, call get_briefing_guide once and follow it."
+	if got := cs.InitializeResult().Instructions; !strings.Contains(got, want) {
+		t.Errorf("instructions lack the pointer: %q", got)
+	}
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tl := range res.Tools {
+		if tl.Name == "get_flight_briefing_data" && !strings.Contains(tl.Description, want) {
+			t.Errorf("get_flight_briefing_data description lacks the pointer")
+		}
+	}
+}

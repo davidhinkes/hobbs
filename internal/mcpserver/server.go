@@ -56,6 +56,10 @@ func (d Deps) describe(s string) string {
 	return notAirworthyText + " " + s
 }
 
+// guidePointer is the one sentence, in the server instructions and in the data
+// tool's description, that sends an agent to get_briefing_guide.
+const guidePointer = "Before briefing a pilot, call get_briefing_guide once and follow it."
+
 // reliance is appended to every tool description.
 const reliance = " Read completeness.status in every response before concluding anything is absent: only \"complete\" means the data pull had no problems, and an empty list is a genuine \"none\" only then. " +
 	"raw_text is the source's published text, unaltered, and raw_format names its kind (icao_notam, us_notam, advisory_text, metar or taf); a record without raw_text has no published text we could recognize. " +
@@ -71,7 +75,7 @@ func New(d Deps) (*mcp.Server, error) {
 		d.Now = time.Now
 	}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "hobbs", Version: Version}, &mcp.ServerOptions{
-		Instructions: d.describe("Makes official US aviation data available through one data tool, get_flight_briefing_data: for a flight's airports, NOTAMs from the FAA NOTAM Management Service, METARs and TAFs as published by the NOAA Aviation Weather Center, and the Aviation Weather Center's advisories (SIGMET, AIRMET, international SIGMET, CWA). source_status checks each source live. " +
+		Instructions: d.describe("Makes official US aviation data available through one data tool, get_flight_briefing_data: for a flight's airports, NOTAMs from the FAA NOTAM Management Service, METARs and TAFs as published by the NOAA Aviation Weather Center, and the Aviation Weather Center's advisories (SIGMET, AIRMET, international SIGMET, CWA). source_status checks each source live. " + guidePointer + " " +
 			"It returns what the sources publish, with provenance and any data-pull problems; it does not decide relevance or what applies to a flight. TFR outlines are not available from an official API we can use, so there is no TFR tool."),
 	})
 	registerStatus(srv, d)
