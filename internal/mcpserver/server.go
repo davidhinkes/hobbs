@@ -76,6 +76,7 @@ func New(d Deps) (*mcp.Server, error) {
 	})
 	registerStatus(srv, d)
 	registerBriefing(srv, d)
+	registerGuide(srv, d)
 	return srv, nil
 }
 

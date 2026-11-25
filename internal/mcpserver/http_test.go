@@ -109,7 +109,7 @@ func TestEndToEndOverHTTP(t *testing.T) {
 	}
 	defer cs.Close()
 	tools, err := cs.ListTools(ctx, nil)
-	if err != nil || len(tools.Tools) != 2 {
+	if err != nil || len(tools.Tools) != 3 {
 		t.Fatalf("tools = %v err=%v", tools, err)
 	}
 	res, r := call(t, cs, "get_flight_briefing_data", map[string]any{"airports": []string{"KSMO"}, "include": []string{"cwas"}})
