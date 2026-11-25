@@ -1,6 +1,6 @@
 # A briefing guide served by the server: `get_briefing_guide` (design)
 
-Date: 2026-11-25. Status: **approved by the maintainer, 2026-11-25** (§5.1's response form was changed after approval, while planning; see there). Once built, `docs/DESIGN.md` is the source of truth and this file is kept as the design record.
+Date: 2026-11-25. Status: **implemented, 2026-11-25**, on branch `ccr-e79323f2-4fnpus`. **`docs/DESIGN.md` is now the source of truth**; this file is kept as the design record and is not updated further. Approved by the maintainer on 2026-11-25 (§5.1's response form was changed after approval, while planning; see there). Once built, `docs/DESIGN.md` is the source of truth and this file is kept as the design record.
 
 ## 1. Intent
 

@@ -2,8 +2,9 @@
 //
 // Governing rule (docs/DESIGN.md §2): this layer makes the sources' data
 // available, uniformly and honestly. It does not decide what is relevant or
-// applicable. Every response is a provenance envelope; every filter is either
-// forwarded to the source or named as applied by this server.
+// applicable. Every data response is a provenance envelope; every filter is
+// either forwarded to the source or named as applied by this server. The one
+// plain-text response is get_briefing_guide, which is advice on method, not data.
 package mcpserver
 
 import (

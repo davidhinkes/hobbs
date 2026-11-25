@@ -2,9 +2,9 @@
 
 ## 1. Purpose and status
 
-Hobbs is an MCP server that makes official US aviation data available to AI agents: FAA NOTAMs from the NOTAM Management Service (NMS-API), and METARs, TAFs and weather advisories (SIGMET, AIRMET, international SIGMET, CWA) from the NOAA Aviation Weather Center (AWC). One data tool, `get_flight_briefing_data`, returns all of them for a flight's airports in one call, each kind in its own sublist; a second tool, `source_status`, checks the sources. Every response says where its data came from, when, and what went wrong getting it.
+Hobbs is an MCP server that makes official US aviation data available to AI agents: FAA NOTAMs from the NOTAM Management Service (NMS-API), and METARs, TAFs and weather advisories (SIGMET, AIRMET, international SIGMET, CWA) from the NOAA Aviation Weather Center (AWC). One data tool, `get_flight_briefing_data`, returns all of them for a flight's airports in one call, each kind in its own sublist; a second tool, `source_status`, checks the sources, and a third, `get_briefing_guide`, returns a short guide for briefing a pilot with that data. Every data response says where its data came from, when, and what went wrong getting it.
 
-**Status (2026-11-24):** v1 is built and hosted at `https://hobbs.up.railway.app/mcp`. On 2026-11-24 METARs and TAFs were added, and the one data tool replaced the two earlier ones, which asked for NOTAMs and advisories separately (§9). NOTAMs come from the FAA's **staging** environment, so the server is not airworthy (§5.6).
+**Status (2026-11-25):** v1 is built and hosted at `https://hobbs.up.railway.app/mcp`. On 2026-11-25 the briefing guide tool was added (§5.2, §9). On 2026-11-24 METARs and TAFs were added, and the one data tool replaced the two earlier ones, which asked for NOTAMs and advisories separately (§9). NOTAMs come from the FAA's **staging** environment, so the server is not airworthy (§5.6).
 
 How to read this document:
 
@@ -25,6 +25,8 @@ This is a living document, updated in the same change as the code it describes (
 - **Available:** the data is reachable when the sources are, and when it is not (or is partial, or from a test environment) the response says so, instead of failing quietly.
 
 This layer is the foundation. The opinionated parts of the application (what matters for a flight, what to do about it) are built **on top of it, in separate layers**, by people and agents who choose their own logic. They are deliberately not here.
+
+The one exception, since 2026-11-25, is **advice on method**, not judgment on records: `get_briefing_guide` (§5.2) tells an agent how to brief a general aviation pilot (what to ask, what to fetch, how to keep the briefing short, what never to cut). The server still labels, ranks, filters and drops no record, and the agent applies the judgment. The risk this accepts is that an agent's bad cut leaves a record out of a pilot's briefing; the guide answers it with "when not sure, keep it in", with lines that may never be cut (a failed pull, the missing TFR outlines, the not-airworthy mark) and with a closing line saying what was set aside (§9).
 
 ### 2.1 What this layer may do
 
@@ -62,7 +64,7 @@ When in doubt, return the data as published, flag the doubt, and leave the decis
 
 - **AI agents** are the callers: an agent briefing a pilot, or a higher-layer application that decides relevance. They call the tools over MCP and read the JSON.
 - **The maintainer** (single maintainer, hobby project) runs, deploys and checks the service.
-- People reach the data only through an agent or a higher layer; the server has no user interface.
+- People reach the data only through an agent or a higher layer; the server has no user interface. The person the agent briefs is usually a general aviation pilot, and hobbs is meant as part of a safety system for them: a briefing that buries the few items that matter is a failure, so signal over noise is the goal of the guide (§5.2).
 
 US focus. International SIGMETs are included because AWC publishes them.
 
@@ -74,6 +76,8 @@ US focus. International SIGMETs are included because AWC publishes them.
 3. The agent gets one envelope with a sublist per kind (`notams`, `metars`, `tafs`, `sigmets`, `airmets`, `intl_sigmets`, `cwas`), each record with its published text, and every gap flagged: an airport with no METAR or TAF (`STATION_NO_DATA`), a failed source, the centers added and the note that centers in between were not inferred. The advisories are the full current national sets. Geometry comes only when asked (`include_geometry: true`).
 4. The agent decides what matters: which advisories touch the route, time and altitude, which NOTAMs are in effect during the flight (there is no time filter, §3.4), and whether to call again with any other centers the route crosses.
 
+**F1a. Brief a pilot** (since 2026-11-25). The agent calls `get_briefing_guide` once and follows it: it asks the pilot only what it does not know (departure and flight time, aircraft, VFR or IFR, altitude, route, alternates); it calls `get_flight_briefing_data` once with every airport that matters, including airports along the route that it chooses, and the en-route centers the route crosses in `centers`; it briefs only what could hurt or stop this flight, most serious first; it keeps three lines that are never cut (not airworthy, any failed or partial pull, no TFR outlines); and it closes with one line on how many records it set aside. The server does none of the judging (§2).
+
 **F2. Can I trust this answer?** In every response the agent reads `completeness.status` (only `complete` means a clean pull), the `issues`, `provenance.sources` (what was fetched, when, from where) and `airworthy`. To see why something was incomplete, it calls `source_status`, which checks every source live.
 
 **F3. Connect a client.** A local client runs the binary over stdio. A remote client points at `https://hobbs.up.railway.app/mcp` (Streamable HTTP, open). Claude Code sessions on this repo load the hosted tools from `.mcp.json`.
@@ -84,7 +88,7 @@ US focus. International SIGMETs are included because AWC publishes them.
 
 | # | Requirement |
 |---|---|
-| R1 | Every response states its sources, retrieval times and every data-pull problem (§5.1). There is no response without provenance. |
+| R1 | Every response states its sources, retrieval times and every data-pull problem (§5.1). There is no data response without provenance; the guide tool's text is advice, not data, and is the one exception (§5.2). |
 | R2 | Never present an empty result as "none" unless the pull was clean (`completeness.status` = `complete`). |
 | R3 | Official sources only (FAA, NOAA); no third-party aggregators. Undocumented endpoints are labelled as such. |
 | R4 | Filter only with the source's own filters, and say who applied each filter (`applied_by_source` / `applied_by_server`). Today every filter is the source's own, shown in `translation` (§5.2), where each entry has both fields and `applied_by_server` is always empty. |
@@ -99,7 +103,7 @@ Accepted consequence: responses can be large (an airport can have hundreds of NO
 
 ### 3.4 Non-goals
 
-- Relevance scoring, ranking, prioritizing, summarizing or "you should care about this" guidance.
+- Relevance scoring, ranking, prioritizing, summarizing or "you should care about this" labels on records, **by the server**. Advice to the agent on how to brief is served by `get_briefing_guide` (§5.2); the judging stays with the agent.
 - Route, corridor or area intersection; "active at time T"; altitude-overlap matching; labels such as "applies" or "does not apply". Agents do this themselves from the geometry and fields returned.
 - A route input, or inferring the en-route centers between airports (§9).
 - A time window. The FAA's effective-window filter returns only NOTAMs entirely inside the window (§5.5), so it would hide NOTAMs in effect during a flight; no other source would use it. There is no time input (§9).
@@ -119,7 +123,7 @@ flowchart TB
   subgraph hobbs["hobbs: one Go binary"]
     direction TB
     transport["<b>Transport</b><br/>stdio · Streamable HTTP /mcp<br/>global rate limit · /healthz"]
-    tools["<b>Tools</b> (mcpserver)<br/>get_flight_briefing_data · source_status<br/>validate → translate → ask sources in parallel → merge → shape"]
+    tools["<b>Tools</b> (mcpserver)<br/>get_flight_briefing_data · source_status · get_briefing_guide<br/>validate → translate → ask sources in parallel → merge → shape"]
     env["<b>respond()</b> (provenance)<br/>envelope: sources · issues · status · airworthy · disclaimer"]
     adapters["<b>Source adapters</b><br/>awc: 4 advisory feeds + METAR, TAF · nms: OAuth2 client · tfr: off<br/>parse → model (Notam, Advisory, StationReport, Altitude) + geo (GeoJSON)"]
     transport --> tools
@@ -139,7 +143,7 @@ flowchart TB
 **The parts:**
 
 - **Transport.** stdio for a local client; Streamable HTTP for the hosted service, stateless, with a global rate limit and an open health check (§5.6).
-- **Tools** (`internal/mcpserver`). Two read-only tools: one data tool, `get_flight_briefing_data`, and `source_status`. The data tool validates its input (bad requests are refused before anything is sent upstream), translates it into each source's own query, calls the source adapters in parallel, merges the results and applies the caller's shaping (`include`, `include_geometry`) (§5.2).
+- **Tools** (`internal/mcpserver`). Three read-only tools: one data tool, `get_flight_briefing_data`, `source_status`, and `get_briefing_guide`, which returns embedded advice text and touches no source and no envelope. The data tool validates its input (bad requests are refused before anything is sent upstream), translates it into each source's own query, calls the source adapters in parallel, merges the results and applies the caller's shaping (`include`, `include_geometry`) (§5.2).
 - **The envelope** (`internal/provenance`). Every tool returns through one function, which builds the provenance envelope, derives the completeness status by rule and stamps `airworthy` and the disclaimer (§5.1).
 - **Source adapters** (`internal/source/...`). One per upstream. Each fetches, parses into the shared model (`internal/model`) and records data-pull problems as issues instead of dropping records. Shapes are translated into canonical GeoJSON by `internal/geo` (§5.3, §5.4, §5.5).
 - **The upstream services.** NOAA AWC (public, no key) and the FAA NMS-API (OAuth2; staging credentials today). The TFR adapter exists but is turned off and not linked into the binary.
@@ -238,14 +242,14 @@ Rules:
 | `UNDOCUMENTED_SOURCE` | Endpoint is not a documented, supported API (info). Added automatically; no undocumented source is in use today |
 | `RESULT_TRUNCATED` | The caller's `limit` omitted items; the count is given. Not emitted today: no tool takes `limit` (§9); the code is kept |
 | `SOURCE_NOT_ENABLED` | Source configured off (NOTAMs without `-nms-url`) |
-| `NOT_AIRWORTHY` | The server is not airworthy (§5.6): every response carries it, so nothing reads as complete |
+| `NOT_AIRWORTHY` | The server is not airworthy (§5.6): every data response carries it, so nothing reads as complete |
 | `CENTER_NOT_IMPLIED` | `get_flight_briefing_data` with NOTAMs: no NOTAM returned for an airport or center given lists an en-route center, so none was added for it (warning) |
 | `STATION_NO_DATA` | `get_flight_briefing_data`: a requested airport has no METAR (source `awc.metar`) or no TAF (`awc.taf`) in AWC's answer; `refs` lists the airports in request order. AWC answers the same way for "no current report", "no TAF published here" and "unknown station", so this is never a confirmed "none" (warning) |
 | `CLOCK_SKEW` | An upstream timestamp is ahead of our clock (added automatically) |
 
 ### 5.2 Tools
 
-Two tools, both read-only, both returning the §5.1 envelope. Input errors come back as `isError` results with a message the agent can act on, and invalid requests never reach a source. A call that obtained no data at all (every source that was asked, or should have been, failed or is not enabled) returns `isError: true` together with the envelope; a partial failure returns the data plus a `critical` issue (`SOURCE_UNAVAILABLE`, or `SOURCE_NOT_ENABLED` for NOTAMs on a server without them) and status `incomplete`.
+Three tools, all read-only. The two data tools return the §5.1 envelope; `get_briefing_guide` returns plain text. Input errors come back as `isError` results with a message the agent can act on, and invalid requests never reach a source. A call that obtained no data at all (every source that was asked, or should have been, failed or is not enabled) returns `isError: true` together with the envelope; a partial failure returns the data plus a `critical` issue (`SOURCE_UNAVAILABLE`, or `SOURCE_NOT_ENABLED` for NOTAMs on a server without them) and status `incomplete`.
 
 #### `get_flight_briefing_data`
 
@@ -324,6 +328,15 @@ The description an agent reads states the not-airworthy label, the completeness 
 #### `source_status`
 
 Checks every source live: the four advisory feeds, the METAR and TAF services (one request each, for `KLAX`, a large airport that always publishes both), and the NOTAM source (the NMS-API ping). For each it reports reachable or not, latency, production versus staging, and documented API or not. The issues a check's fetch reports are kept in the response's `completeness.issues` (since 2026-11-24): an empty answer for `KLAX` is the anomaly the METAR and TAF checks exist to show, so its `STATION_NO_DATA` warning appears there, beside a check that still reads `ok` (the service answered); advisory `PARSE_FAILED` warnings appear the same way. It is diagnostics, not data.
+
+#### `get_briefing_guide`
+
+Added 2026-11-25 (§9). No input. Returns a short guide (about 300 words, Markdown) for briefing a general aviation pilot with this server's data: ask the pilot a few questions, fetch wide (including airports along the route and the en-route centers, which the agent chooses), brief only what could hurt or stop this flight, never cut the data-quality lines, and close with one line on what was left out. It gives no go/no-go advice, and when the agent is unsure whether a record matters it says to keep it in.
+
+- **Plain text, not an envelope.** The guide is the project's own advice on method, not data from a source, and `provenance.New` refuses an envelope with no source. When the server is not airworthy the text starts with the NOT AIRWORTHY sentence (the same one the tool descriptions carry). Every *data* response still carries the envelope (R1).
+- **Where the text lives:** `internal/mcpserver/guide.md`, embedded in the binary, so it reads and edits as a document. A test pins the tool and field names the guide uses (`get_flight_briefing_data`, `centers`, `completeness.status`, `airworthy`), so renaming one breaks the build.
+- **How an agent finds it:** one sentence, `Before briefing a pilot, call get_briefing_guide once and follow it.`, in the server instructions and in the description of `get_flight_briefing_data`. The guide itself is not in those texts, so it costs nothing in a conversation that is not a briefing (the alternatives are in §9).
+- **Scope:** it advises on method only. The server still labels, ranks, filters and drops no record (§2); the agent applies the judgment, and the risk that a bad cut hides a record from a pilot is accepted and answered by the guide's rules (§2).
 
 ### 5.3 Data model
 
@@ -426,7 +439,8 @@ The design depends on how each upstream actually behaves. These facts were obser
 
 ```
 cmd/hobbs/             main: flags, wiring, transports
-internal/mcpserver/    tools (briefing.go: get_flight_briefing_data; status.go: source_status), input
+internal/mcpserver/    tools (briefing.go: get_flight_briefing_data; status.go: source_status;
+                       guide.go and guide.md: get_briefing_guide and its text), input
                        validation, translation, the NOTAM and advisory collectors (notams.go,
                        weather.go), merging, response shaping, HTTP handler
 internal/provenance/   envelope, source record, issue codes, status rules, disclaimer
@@ -440,9 +454,9 @@ testdata/              captured upstream responses, used only by tests
 
 ## 6. Testing and delivery
 
-- **Unit tests** (`go test ./...`) run offline against fake upstream servers that serve captured real responses (`testdata/`). The binary never reads test data. The tests cover parsing (including METAR, SPECI and TAF records, AWC's two empty answers, a missing station and a malformed record), geometry with exact values, the envelope rules, the translation from input to source queries (including centers), and both tools through a real MCP client.
+- **Unit tests** (`go test ./...`) run offline against fake upstream servers that serve captured real responses (`testdata/`). The binary never reads test data. The tests cover parsing (including METAR, SPECI and TAF records, AWC's two empty answers, a missing station and a malformed record), geometry with exact values, the envelope rules, the translation from input to source queries (including centers), and the tools through a real MCP client. The guide's tests check its text is returned (with the not-airworthy sentence only when not airworthy), that it names tools and fields that exist, and that the instructions and the data tool's description point at it.
 - **Integration tests** (`go test -tags live ./...`) run the server locally against the live sources and need the NMS credentials. The server test builds the binary and calls, over stdio, `source_status` and `get_flight_briefing_data` for KSMO and KEMT (without and with geometry), for KSMO with only METARs and TAFs, and for `SMO` (a correctable mistake), logging counts and issues; the AWC test fetches the four advisory feeds, and METARs and TAFs for KLAX and KXYZ (KLAX must return records, KXYZ must be flagged `STATION_NO_DATA`). The TFR adapter's live test is built only with `-tags tfrlive`.
-- **End-to-end tests** run only against the hosted service, through a real MCP client: the `hobbs` server registered in `.mcp.json`. Start with `source_status`.
+- **End-to-end tests** run only against the hosted service, through a real MCP client: the `hobbs` server registered in `.mcp.json`. Start with `source_status`. To test the guide, start a fresh session, ask for a briefing, and check that the agent called `get_briefing_guide` first and that the briefing is short and keeps the data-quality lines.
 - **CI** (`.github/workflows/ci.yml`) runs on every pull request and every push to `main`: gofmt, `go vet`, build, the offline tests, `staticcheck` and `deadcode` (pinned versions; `deadcode` may report only the items listed in `.github/deadcode-expected.txt`), and a Docker build of the image Railway deploys.
 - **Deploy:** Railway auto-deploys `main` and waits for CI before building, so only commits that pass reach production. After each merge, confirm the deployment reached `SUCCESS` and call `source_status`.
 
@@ -471,6 +485,11 @@ Open questions and known gaps, by area. When one is decided, record the decision
 - **An area (bounding-box) input for METARs and TAFs** (deferred by the maintainer, 2026-11-24). AWC's METAR and TAF endpoints honor `bbox=` (§5.5). It can be added without breaking callers; the open question is how to flag a missing report when there is no list of expected stations.
 - **The narrower NOTAM and advisory queries**, dropped on 2026-11-24 with the two earlier data tools (§9): point and radius (it matches reference points, not areas, §5.5), NOTAM number, free text, feature, classification, accountability, last-updated, and the advisory hazard. If wanted again, they need a decision with the maintainer on where they go, since one way to ask was the reason for the single tool.
 - **Response size.** Results are large (§3.3 accepts this) and doubled on the wire (§5.6). Dropping the text copy would halve it but could break older clients. Since 2026-11-24 a NOTAM's `raw_text` rendering is no longer repeated in `translations` (§9), about 23% less NOTAM data on a KSMO/KEMT query, and `get_flight_briefing_data` leaves geometry out unless asked (a KSMO/KSAN briefing with geometry is roughly 300 KB of JSON). One call now carries NOTAMs, METARs, TAFs and the four national advisory sets together.
+
+**Briefing guide**
+
+- **Does the agent call the guide unprompted?** To be observed after the 2026-11-25 deploy. If agents skip it, move the method into the data tool's description (alternative A2 in §9).
+- **Is the guide's wording right?** It is a first draft (`internal/mcpserver/guide.md`); tune it from real briefings.
 
 **Operations**
 
@@ -507,3 +526,4 @@ Add an entry when a major decision is made; when one is reversed, add a new entr
 | 2026-11-24 | **METARs and TAFs from the NOAA AWC Data API** (`/api/data/metar`, `/api/data/taf`), asked with AWC's own `ids` filter (§5.5) | official, documented, no key, JSON; the same API and adapter as the advisories; source-applied filters; the raw report plus decoded fields | NWS `api.weather.gov` observations: official, but no TAFs, and a different model from the METAR as published. AWC bulk cache files: whole-country files we would trim, a server-side filter §2 rules out. FAA sources: no public METAR/TAF API we know of |
 | 2026-11-24 | **METARs and TAFs as published:** one station-report model for both; `raw_text` unaltered (`raw_format` `metar` or `taf`); AWC's decoded fields kept whole in `details`, including `fltCat`, which is AWC's flight category, not computed by hobbs (§5.3) | §2: return the data as published; AWC's decoding is already complete, and nothing in it is reinterpreted | Converting units (hPa to inches, statute-mile strings to numbers) or normalizing cloud layers into fields of our own: each conversion is an interpretation to document and flag, for no gain over AWC's own fields; it can be added later under §2.1 with the originals kept. Computing a flight category ourselves: a judgment, and AWC publishes one |
 | 2026-11-24 | **`include_geometry` defaults to false in `get_flight_briefing_data`, and `limit` is dropped** (§5.2) | geometry dominates the size: a KSMO/KSAN briefing with it is roughly 300 KB of JSON, about twice that on the wire, and the omission is visible in `omitted_fields`. With several sublists the meaning of one `limit` is unclear, and there is no default cap anyway (R5) | Default true, as in the old tools: the common call would be very large. A `limit` per sublist or overall: unclear meaning, and a cap hides records (`RESULT_TRUNCATED` stays in the code, not emitted) |
+| 2026-11-25 | **Scope: the server serves a briefing guide, `get_briefing_guide`** (maintainer's decision; §2, §5.2). A third tool, no input, returns a short Markdown guide as plain text; one sentence in the server instructions and in the data tool's description tells the agent to call it before briefing a pilot. It is advice on method (ask the pilot, fetch wide, brief short, never cut the data-quality lines, close with one line on what was left out, no go/no-go); the server still judges no record | hobbs is meant as part of a safety system for general aviation pilots, and an agent that has only the data does not know how to use it: it asks for too little or hands over hundreds of NOTAMs, and a pilot given 200 NOTAMs stops reading. The value is the signal-to-noise ratio of the briefing. The guide is loaded only when a briefing starts, works in every MCP client, and leaves the data path unchanged. The maintainer chose a short briefing with a one-line mention of what was set aside, accepting that an agent's bad cut could leave a record out | Guide in the server `instructions` plus an MCP prompt: the instructions sit in the context of every session where hobbs is connected, flying or not, and Claude Code cuts long instructions off. The method in the data tool's description (A2): free in clients that hold tool descriptions back, but that description is already about 400 words and other clients load it every session; kept as the fallback (§8). A guidance field in every data response: cannot be missed, but mixes advice into the data envelope and repeats on every call. A Claude Code plugin with skills: skills trigger by themselves, but only in Claude clients and users must install and update it. MCP prompts or resources alone: prompts run only when a user picks them, and clients differ in how they use resources. A full list of what was set aside: defeats the short briefing. The response as a provenance envelope with no sources (the first design): `provenance.New` refuses an envelope with no source, and inventing a source for our own text would misuse provenance |
