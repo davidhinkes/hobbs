@@ -91,3 +91,34 @@ func TestInstructionsAndDataToolPointAtTheGuide(t *testing.T) {
 		}
 	}
 }
+
+// Agents were seen fetching weather from other sites after calling hobbs
+// (2026-11-25). The instructions, the data tool's description and the guide
+// must all say that data which changes comes only from this server.
+func TestLiveDataComesOnlyFromThisServer(t *testing.T) {
+	cs := connect(t, newUpstreams(t).deps(t, true, false))
+	if got := cs.InitializeResult().Instructions; !strings.Contains(got, liveDataRule) {
+		t.Errorf("instructions lack the live-data rule: %q", got)
+	}
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, tl := range res.Tools {
+		if tl.Name == "get_flight_briefing_data" {
+			found = true
+			if !strings.Contains(tl.Description, liveDataRule) {
+				t.Error("get_flight_briefing_data description lacks the live-data rule")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("get_flight_briefing_data is not registered")
+	}
+	for _, must := range []string{"## 3. Use only this data", "do not fill it in from memory", "do not fetch it yourself"} {
+		if !strings.Contains(guideText, must) {
+			t.Errorf("guide lacks %q", must)
+		}
+	}
+}

@@ -85,7 +85,7 @@ func registerBriefing(srv *mcp.Server, d Deps) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "get_flight_briefing_data",
 		Annotations: readOnly("NOTAMs, METARs, TAFs and weather advisories for a flight"),
-		Description: d.describe("Returns, in one call, the official data for a flight's airports: NOTAMs from the FAA NOTAM Management Service (NMS-API), METARs (including SPECIs) and TAFs as published by the NOAA Aviation Weather Center (AWC), and the AWC's weather advisories (SIGMET, graphical AIRMET, international SIGMET, CWA), each in its own sublist. " + guidePointer + " " +
+		Description: d.describe("Returns, in one call, the official data for a flight's airports: NOTAMs from the FAA NOTAM Management Service (NMS-API), METARs (including SPECIs) and TAFs as published by the NOAA Aviation Weather Center (AWC), and the AWC's weather advisories (SIGMET, graphical AIRMET, international SIGMET, CWA), each in its own sublist. " + guidePointer + " " + liveDataRule + " " +
 			"Give airports as 4-character ICAO identifiers (KSMO, not SMO; the server never adds a K), and optionally centers: en-route centers (e.g. ZAB) the flight also crosses, used for NOTAMs only; include chooses the sublists (default all). " +
 			"NOTAMs are asked for each airport and center; the en-route center the FAA lists on their NOTAMs is added and named under locations.added. Centers between the airports are never inferred: list any other center the flight crosses. " +
 			"Each NOTAM's raw_text is its ICAO rendering (raw_format icao_notam) when the FAA supplied one, else the US domestic one (us_notam); any other rendering is in translations. " +
