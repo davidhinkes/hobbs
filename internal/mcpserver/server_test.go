@@ -232,8 +232,18 @@ func TestToolsAreListedWithTheContractInTheirDescriptions(t *testing.T) {
 			t.Errorf("%s must be annotated read-only", name)
 		}
 	}
-	if len(got) != 2 {
-		t.Errorf("tools = %d, want exactly 2: get_flight_briefing_data and source_status (no TFR tool, no route tool)", len(got))
+	if len(got) != 3 {
+		t.Errorf("tools = %d, want exactly 3: get_flight_briefing_data, source_status and get_briefing_guide (no TFR tool, no route tool)", len(got))
+	}
+	g := got["get_briefing_guide"]
+	if g == nil {
+		t.Fatal("missing tool get_briefing_guide")
+	}
+	if g.Annotations == nil || !g.Annotations.ReadOnlyHint {
+		t.Error("get_briefing_guide must be annotated read-only")
+	}
+	if !strings.Contains(g.Description, "before briefing a pilot") || strings.Contains(g.Description, "raw_text") {
+		t.Errorf("get_briefing_guide description: want the when-to-call line and no reliance text, got %q", g.Description)
 	}
 	// The data tool's description must warn about TFR limits and say what it does not infer.
 	d := got["get_flight_briefing_data"].Description
@@ -579,8 +589,8 @@ func TestGeometryCanBeOmittedOnRequestAndSaysSo(t *testing.T) {
 	}
 }
 
-// Unless the server is airworthy, every response from every tool, including
-// error envelopes, says airworthy: false and carries NOT_AIRWORTHY, and the
+// Unless the server is airworthy, every data response, including error
+// envelopes, says airworthy: false and carries NOT_AIRWORTHY, and the
 // descriptions say so before anything is called.
 func TestAirworthyIsOnEveryResponse(t *testing.T) {
 	for _, airworthy := range []bool{false, true} {
