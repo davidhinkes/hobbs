@@ -48,7 +48,8 @@ HOBBS_NMS_CLIENT_ID=... HOBBS_NMS_CLIENT_SECRET=... ./hobbs -http :8080 -nms-url
 | `-http` | (stdio) | Listen address for Streamable HTTP, e.g. `:8080` |
 | `-airworthy` | `false` | Declares responses usable for flight planning and navigation. By default every data response says `"airworthy": false`, carries a `NOT_AIRWORTHY` warning (so nothing reads as complete), and the tool descriptions say so. Accepted only without `-nms-url` or with the FAA's production NMS-API URL (`https://api-nms.aim.faa.gov`); any other server, staging included, counts as test data |
 | `-nms-url` | (NOTAMs off) | NMS-API server for NOTAMs, scheme and host only. Staging is `https://api-staging.cgifederal-aim.com` |
-| `-rate` | `5` | HTTP only: global request rate limit, requests per second (bursts up to twice that); an error without `-http` |
+| `-rate` | `5` | HTTP only: global limit on incoming MCP requests, per second (bursts up to twice that); an error without `-http`. It does not cap NMS traffic: one briefing makes an NMS request per airport and center |
+| `-nms-rate` | `1` | NMS-API requests per second, at most, with no burst (token, NOTAM and ping requests alike). Requests over it wait their turn rather than fail, so a 10-airport briefing takes 10 s or more. The FAA's NMS-API FAQ gives the test environment 1 per second |
 
 | Secret (environment only) | Needed for |
 |---|---|

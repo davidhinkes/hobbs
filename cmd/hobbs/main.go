@@ -38,6 +38,7 @@ type options struct {
 	rate      float64
 	rateSet   bool
 	nmsURL    string
+	nmsRate   float64
 }
 
 func main() {
@@ -48,6 +49,7 @@ func main() {
 	flag.StringVar(&o.http, "http", "", "listen address for the hosted Streamable HTTP server, e.g. :8080; empty serves MCP over stdio")
 	flag.Float64Var(&o.rate, "rate", 5, "HTTP only: global request rate limit in requests per second (bursts up to twice this); an error without -http")
 	flag.StringVar(&o.nmsURL, "nms-url", "", "NMS-API server for NOTAMs, scheme and host only (e.g. "+nms.StagingHost+"); empty turns NOTAMs off. Credentials from HOBBS_NMS_CLIENT_ID / HOBBS_NMS_CLIENT_SECRET")
+	flag.Float64Var(&o.nmsRate, "nms-rate", 1, "NMS-API requests per second, at most, with no burst; requests over it wait their turn. The FAA's NMS-API FAQ gives the test environment 1 per second")
 	flag.Parse()
 	flag.Visit(func(f *flag.Flag) {
 		if f.Name == "rate" {
@@ -74,11 +76,11 @@ func nmsClient(log *slog.Logger, o options) (*nms.Client, error) {
 	if !ok {
 		return nil, errors.New("-nms-url needs HOBBS_NMS_CLIENT_ID and HOBBS_NMS_CLIENT_SECRET in the environment")
 	}
-	c, err := nms.NewClient(nms.Config{Host: o.nmsURL, ClientID: id, ClientSecret: secret})
+	c, err := nms.NewClient(nms.Config{Host: o.nmsURL, ClientID: id, ClientSecret: secret, RatePerSecond: o.nmsRate})
 	if err != nil {
 		return nil, err
 	}
-	log.Info("NOTAM source enabled", "url", o.nmsURL)
+	log.Info("NOTAM source enabled", "url", o.nmsURL, "requests_per_second", o.nmsRate)
 	return c, nil
 }
 
@@ -112,6 +114,9 @@ func run(log *slog.Logger, o options) error {
 	}
 	if o.rate <= 0 {
 		return errors.New("-rate must be greater than 0")
+	}
+	if o.nmsRate <= 0 {
+		return errors.New("-nms-rate must be greater than 0")
 	}
 	if o.airworthy {
 		log.Warn("AIRWORTHY mode: responses are declared usable for flight planning and navigation")

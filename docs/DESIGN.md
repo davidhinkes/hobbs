@@ -4,7 +4,7 @@
 
 Hobbs is an MCP server that makes official US aviation data available to AI agents: FAA NOTAMs from the NOTAM Management Service (NMS-API), and METARs, TAFs and weather advisories (SIGMET, AIRMET, international SIGMET, CWA) from the NOAA Aviation Weather Center (AWC). One data tool, `get_flight_briefing_data`, returns all of them for a flight's airports in one call, each kind in its own sublist; a second tool, `source_status`, checks the sources, and a third, `get_briefing_guide`, returns a short guide for briefing a pilot with that data. Every data response says where its data came from, when, and what went wrong getting it.
 
-**Status (2026-11-25):** v1 is built and hosted at `https://hobbs.up.railway.app/mcp`. On 2026-11-25 the briefing guide tool was added (§5.2, §9), and, later that day, the rule that data which changes comes only from this server (§5.2, §9). On 2026-11-24 METARs and TAFs were added, and the one data tool replaced the two earlier ones, which asked for NOTAMs and advisories separately (§9). NOTAMs come from the FAA's **staging** environment, so the server is not airworthy (§5.6).
+**Status (2026-11-28):** v1 is built and hosted at `https://hobbs.up.railway.app/mcp`. On 2026-11-28 NMS requests were capped at 1 per second (`-nms-rate`, §5.6, §9), and production onboarding with the FAA is being requested (§8). On 2026-11-25 the briefing guide tool was added (§5.2, §9), and, later that day, the rule that data which changes comes only from this server (§5.2, §9). On 2026-11-24 METARs and TAFs were added, and the one data tool replaced the two earlier ones, which asked for NOTAMs and advisories separately (§9). NOTAMs come from the FAA's **staging** environment, so the server is not airworthy (§5.6).
 
 How to read this document:
 
@@ -158,6 +158,38 @@ flowchart TB
 6. `respond()` builds one envelope over all of it: every source with retrieval time and counts, every issue, the derived status, `airworthy: false` and the disclaimer. A failed source makes the response `incomplete` without hiding the others.
 
 **No cache.** Every call fetches from the source live, so `served_from` is always `live`. A cache is added only on a measured need and must keep the same provenance contract.
+
+**How a briefing uses the upstream services** (as of 2026-11-28). hobbs only *searches*: it never downloads a full data set from the FAA and keeps no copy of one. Each briefing turns into these upstream requests:
+
+| Source | Requests per briefing | Why that many |
+|---|---|---|
+| FAA NMS-API, NOTAMs | **one search per airport and center** given, then one more per new en-route center the FAA lists on those NOTAMs (usually 0 to 2) | the API's `location` filter takes exactly one identifier (OpenAPI spec: a string matching `^[a-zA-Z0-9]{3,4}$`; no list form), so several places cannot be asked in one search (§5.5) |
+| FAA NMS-API, token | at most one, about every 30 minutes | OAuth2 tokens last 1,799 s and are reused across briefings |
+| AWC METARs, AWC TAFs | one each, for all the airports | AWC's `ids` filter takes a list |
+| AWC advisories | four (SIGMET, G-AIRMET, international SIGMET, CWA) | each feed is fetched whole |
+
+So a KSMO to KPSP briefing makes 2 or 3 NOTAM searches (KSMO, KPSP, and usually the implied center ZLA), and a briefing for 10 airports and centers makes about 10 to 15. The NOTAM searches are started together but leave hobbs no faster than `-nms-rate` (default 1 per second, no burst; §5.6), so they queue: the 10-location briefing spends about 11 s on NOTAMs. The AWC requests are not paced.
+
+```mermaid
+sequenceDiagram
+  participant A as Agent
+  participant H as hobbs
+  participant N as FAA NMS-API
+  participant W as NOAA AWC
+  A->>H: get_flight_briefing_data(KSMO, KPSP)
+  par NOTAMs, queued at 1 per second
+    H->>N: search location=KSMO
+    H->>N: search location=KPSP
+  and Weather, not paced
+    H->>W: METARs ids=KSMO,KPSP
+    H->>W: TAFs ids=KSMO,KPSP
+    H->>W: 4 advisory feeds, whole
+  end
+  N-->>H: NOTAMs, which list center ZLA
+  H->>N: search location=ZLA (implied center)
+  N-->>H: NOTAMs
+  H-->>A: one envelope: merged NOTAMs, weather, provenance per request
+```
 
 **Delivery:**
 
@@ -411,6 +443,9 @@ The design depends on how each upstream actually behaves. These facts were obser
 
 - **Auth:** `POST /v1/auth/token` with HTTP Basic and `grant_type=client_credentials`; the token lasts about 30 minutes. **Query:** `GET /nmsapi/v1/notams` with header `nmsResponseFormat: GEOJSON`. Filters combine with AND. `classification` needs the long names (`DOMESTIC`, not `DOM`), and alone returns a download link, not data. Zero results is HTTP 200 with `data: {}`.
 - **Data variation:** `type` sometimes missing; `effectiveEnd` can be `PERM`; limits are strings (`SFC`, `UNL`, `FL200`, `6000FT AMSL`, `100FT AGL`, bare `135FT`); `000`/`999` flight levels mean no stated limit; a radius of 999 means a whole region. **Vertical limits are often empty** in the structured fields although the Q-line states them (open item, §8).
+- **One location per search.** The OpenAPI spec the FAA sent (`nms-api.yaml`, 2026-11-22) defines `location` as a single identifier, pattern `^[a-zA-Z0-9]{3,4}$`. A comma-separated list is not documented and has not been tried; relying on undocumented behaviour could drop NOTAMs silently, so hobbs sends one search per identifier (§4).
+- **Rate limits, from the FAA's NMS-API FAQ** (attached to the onboarding email of 2026-11-22): the test environment ("Pre-Production") allows 1 request per second (content calls about 2). For Production it says "1 data pull every 3 minutes provides NOTAMs for the activity from the previous 3 minutes. More frequent use will require FAA approval", and one full (IL) pull every 24 hours; over the limit the API answers HTTP 429. Its usage model is a local copy (a daily full pull plus 3-minute deltas), not on-demand searches. Whether location searches like ours fall under those limits is asked of the FAA (§8). hobbs caps its own NMS requests with `-nms-rate` (§5.6).
+- **Terms, from the same FAQ and the Terms of Service (dated 2026-10-07):** redistribution and display are allowed, without required attribution, but the data must not be characterized as FAA data. No disclaimer is required; the FAA recommends that third-party briefing tools say NMS is not the authoritative source for non-US NOTAMs (it does not receive, for example, UK N-series NOTAMs). Production tokens last 1,799 s, as on staging; there is no status page for outages.
 - **Staging is not operational:** it includes test entries such as "AIRSPACE TESTED FOR CUTOVER SIMULATION". Hence `airworthy: false`.
 - **Volume:** one airport returns hundreds of KB; a 100 nm circle near Washington returned about 1,400 NOTAMs. No rate-limit headers.
 - **Radius search matches a NOTAM's reference point, not its area** (no tool offers a radius search since 2026-11-24; kept as an observation). A 1 nm search circle placed inside a 25 nm NOTAM area, 6 to 24 nm from its center, did not return it; the same NOTAM was returned only when its center was within the search radius (tested on two large-area NOTAMs). The point the FAA uses is not always the Q-line point. So covering a route with circles cannot be made complete, and the radius parameter is documented as not an area filter.
@@ -429,12 +464,13 @@ The design depends on how each upstream actually behaves. These facts were obser
 - **Configuration is by command-line flag.** Only secrets come from environment variables (`HOBBS_NMS_CLIENT_ID`, `HOBBS_NMS_CLIENT_SECRET`), so they never appear in process listings or shell history. Logs go to stderr and never contain credentials.
   - `-http` listen address; empty means stdio.
   - `-nms-url` NMS-API host; empty turns NOTAMs off. The environment (staging, production) is derived from the host.
-  - `-rate` HTTP requests per second, default 5, with bursts up to twice that.
+  - `-rate` incoming MCP requests per second over HTTP, default 5, with bursts up to twice that. It does not bound NMS traffic: one briefing fans out into one NMS request per airport and center, sent concurrently.
+  - `-nms-rate` NMS-API requests per second, default 1, with no burst (since 2026-11-28). Every request the NMS client sends (token, NOTAM query, ping) waits for its turn, so a briefing is slowed, not refused: 10 airports plus an implied center take about 11 s. 1 per second is the FAA's test-environment limit (§5.5); production may need a lower value or a different design (§8).
   - `-airworthy`, below.
 - **stdio** (the default) for a local MCP client.
 - **Streamable HTTP:** stateless, JSON responses (no streaming), at `/mcp`, with an open `/healthz`; `GET /mcp` is 405. It is open, with no authentication, and the global rate limit guards upstream quotas. Every envelope result is sent twice, as text and as structured content (the MCP spec recommends both; the guide's text is sent once, as text), so the wire size is about double the JSON: a 163-NOTAM result was 210 KB of JSON and 435 KB on the wire.
 - **Airworthy** (`-airworthy`, false by default). Every envelope has an `airworthy` field: whether the response may be used for flight planning and navigation. By default it is `false`, every envelope also carries a `NOT_AIRWORTHY` warning (so nothing reads as complete), the guide text starts with the NOT AIRWORTHY sentence, and the server instructions and every tool description start with "NOT AIRWORTHY". `-airworthy` is accepted only without NOTAMs or with the FAA's production NMS-API URL; any other `-nms-url`, staging included, counts as test data. Airworthy is necessary, not sufficient: it does not make the data complete or correct.
-- **Hosted on Railway** (project and service `hobbs`, region sfo). It builds the `Dockerfile` (Go 1.25 build stage, a non-root runtime on Alpine) and deploys on every push to `main` once CI has passed. Start command: `/usr/local/bin/hobbs -http :8080 -nms-url https://api-staging.cgifederal-aim.com`. Public domain `hobbs.up.railway.app` on port 8080; health check `/healthz`. The NMS credentials are Railway service variables.
+- **Hosted on Railway** (project and service `hobbs`, region sfo). It builds the `Dockerfile` (Go 1.25 build stage, a non-root runtime on Alpine) and deploys on every push to `main` once CI has passed. Start command: `/usr/local/bin/hobbs -http :8080 -nms-url https://api-staging.cgifederal-aim.com` (so `-nms-rate` is the default, 1 per second). Public domain `hobbs.up.railway.app` on port 8080; health check `/healthz`. The NMS credentials are Railway service variables.
 
 ### 5.7 Code layout
 
@@ -448,7 +484,7 @@ internal/provenance/   envelope, source record, issue codes, status rules, discl
 internal/model/        Notam, Advisory, StationReport (METAR, TAF), Altitude, Geometry
 internal/geo/          shape translation into canonical geometry (no intersection logic)
 internal/source/awc/   AWC adapter: the four advisory feeds; METARs and TAFs by station (stations.go)
-internal/source/nms/   NMS-API client (OAuth2, query validation, parsing)
+internal/source/nms/   NMS-API client (OAuth2, query validation, parsing, the request-rate cap)
 internal/source/tfr/   TFR adapter (turned off; not linked into the binary)
 testdata/              captured upstream responses, used only by tests
 ```
@@ -476,7 +512,9 @@ Open questions and known gaps, by area. When one is decided, record the decision
 
 **Sources**
 
-- **NMS production.** Access so far is staging; production is a separate onboarding step with the NOTAM Service Center. Until then the hosted server cannot be airworthy.
+- **NMS production.** Access so far is staging; production is a separate onboarding step with the NOTAM Service Center (7-AWA-NAIMES@faa.gov, 866-466-1336), requested once staging validation is done, quoting ticket INC0036653. Until then the hosted server cannot be airworthy.
+- **Production rate limits versus on-demand searches** (2026-11-28). The FAA's production limits (§5.5) are written for a local copy refreshed every 3 minutes; hobbs searches by location on each briefing. Asked of the FAA: whether searches fall under those limits, and at what rate they may be approved. If they may not, hobbs would need a local copy, which reopens "No cache" (§9) and would mean filtering by location on the server, against "filter only with the source's own filters" (§2): a decision for the maintainer.
+- **Non-US NOTAMs.** The FAA recommends saying that NMS is not the authoritative source for non-US NOTAMs (§5.5); the tool description and guide do not say so yet.
 - **The FAA's center association is loose** (§5.5). It errs toward more data, which is the safe direction; watch it on production.
 - **AWC's terms.** AWC's documented rate limit and terms of use are not yet checked.
 
@@ -530,3 +568,4 @@ Add an entry when a major decision is made; when one is reversed, add a new entr
 | 2026-11-24 | **`include_geometry` defaults to false in `get_flight_briefing_data`, and `limit` is dropped** (§5.2) | geometry dominates the size: a KSMO/KSAN briefing with it is roughly 300 KB of JSON, about twice that on the wire, and the omission is visible in `omitted_fields`. With several sublists the meaning of one `limit` is unclear, and there is no default cap anyway (R5) | Default true, as in the old tools: the common call would be very large. A `limit` per sublist or overall: unclear meaning, and a cap hides records (`RESULT_TRUNCATED` stays in the code, not emitted) |
 | 2026-11-25 | **Scope: the server serves a briefing guide, `get_briefing_guide`** (maintainer's decision; §2, §5.2). A third tool, no input, returns a short Markdown guide as plain text; one sentence in the server instructions and in the data tool's description tells the agent to call it before briefing a pilot. It is advice on method (ask the pilot, fetch wide, brief short, never cut the data-quality lines, close with one line on what was left out, no go/no-go); the server still judges no record | hobbs is meant as part of a safety system for general aviation pilots, and an agent that has only the data does not know how to use it: it asks for too little or hands over hundreds of NOTAMs, and a pilot given 200 NOTAMs stops reading. The value is the signal-to-noise ratio of the briefing. The guide is loaded only when a briefing starts, works in every MCP client, and leaves the data path unchanged. The maintainer chose a short briefing with a one-line mention of what was set aside, accepting that an agent's bad cut could leave a record out | Guide in the server `instructions` plus an MCP prompt: the instructions sit in the context of every session where hobbs is connected, flying or not, and Claude Code cuts long instructions off. The method in the data tool's description (A2): free in clients that hold tool descriptions back, but that description is already about 400 words and other clients load it every session; kept as the fallback (§8). A guidance field in every data response: cannot be missed, but mixes advice into the data envelope and repeats on every call. A Claude Code plugin with skills: skills trigger by themselves, but only in Claude clients and users must install and update it. MCP prompts or resources alone: prompts run only when a user picks them, and clients differ in how they use resources. A full list of what was set aside: defeats the short briefing. The response as a provenance envelope with no sources (the first design): `provenance.New` refuses an envelope with no source, and inventing a source for our own text would misuse provenance |
 | 2026-11-25 | **Data that changes comes only from hobbs** (maintainer's decision; §5.2). One sentence in the server instructions and the data tool's description, and a section of the guide, tell the agent to take weather, NOTAMs, flight restrictions and airport, runway and navaid status only from this server, never from other websites, APIs, searches or memory; knowledge that does not go stale is allowed; for anything hobbs does not carry, the agent names the official source for the pilot to check and does not fetch it | An agent was seen calling hobbs and then gathering weather and other data from other sites. Those copies may be stale or unofficial, carry no provenance, and read to the pilot like hobbs's data. The maintainer stands behind hobbs's data and not behind sources it has not vetted. Rule of thumb: anything that needs a live pull goes through hobbs | Let the agent use other sources if it labels them: the pilot still cannot judge their freshness, and the label is easy to drop. Only in the guide: the guide is read only when a briefing starts, and the wandering can happen in any question about a flight. A line in every data response: repeats on every call and mixes advice into the envelope; kept as the stronger step if this is not enough (§8). Forbid all outside knowledge: the agent needs stable facts (where an airport is, what an abbreviation means) to brief at all |
+| 2026-11-28 | **NMS requests capped at `-nms-rate`, default 1 per second, in the NMS client, with no burst; over the cap requests wait** (§5.6) | the FAA's FAQ gives the test environment 1 request per second, and one briefing sends up to about 15 NMS requests at once, so the hosted server could exceed it | Lowering `-rate`: it counts incoming MCP calls, not NMS calls, so it cannot bound the fan-out, and it would also slow the AWC weather calls. Refusing requests over the cap (as `-rate` does): a briefing would lose its NOTAMs instead of taking a few seconds longer. Sending the searches one after another: still several per second |
