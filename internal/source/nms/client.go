@@ -50,6 +50,10 @@ type Config struct {
 	ClientSecret string
 	HTTP         *http.Client
 	Now          func() time.Time
+	// RatePerSecond caps every request sent to the API (token, query and
+	// ping) at this rate, with no burst; callers over it wait their turn.
+	// Zero means no cap (tests). The hobbs binary sets it from -nms-rate.
+	RatePerSecond float64
 }
 
 // NMS-API hosts (scheme and host only), from the FAA's OpenAPI spec. Only
@@ -72,6 +76,7 @@ type Client struct {
 	cfg  Config
 	http *http.Client
 	now  func() time.Time
+	pace *pacer
 
 	mu      sync.Mutex
 	token   string
@@ -87,7 +92,13 @@ func NewClient(cfg Config) (*Client, error) {
 	if cfg.ClientID == "" || cfg.ClientSecret == "" {
 		return nil, errors.New("nms: ClientID and ClientSecret are required")
 	}
+	if cfg.RatePerSecond < 0 {
+		return nil, errors.New("nms: RatePerSecond must not be negative")
+	}
 	c := &Client{cfg: cfg, http: cfg.HTTP, now: cfg.Now}
+	if cfg.RatePerSecond > 0 {
+		c.pace = newPacer(cfg.RatePerSecond, time.Now, sleepCtx)
+	}
 	c.cfg.Host = strings.TrimRight(cfg.Host, "/")
 	if c.http == nil {
 		c.http = &http.Client{Timeout: 60 * time.Second}
@@ -238,7 +249,7 @@ func (c *Client) accessToken(ctx context.Context, force bool) (string, error) {
 	}
 	req.SetBasicAuth(c.cfg.ClientID, c.cfg.ClientSecret)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := c.http.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		// Do not include err: net/http errors can echo request details.
 		return "", fmt.Errorf("%w: token request failed", ErrUpstream)
@@ -265,6 +276,15 @@ func (c *Client) accessToken(ctx context.Context, force bool) (string, error) {
 	c.token = t.AccessToken
 	c.expires = c.now().Add(time.Duration(secs) * time.Second)
 	return c.token, nil
+}
+
+// do sends req once its turn under the rate cap comes. Every request to the
+// API goes through here.
+func (c *Client) do(req *http.Request) (*http.Response, error) {
+	if err := c.pace.wait(req.Context()); err != nil {
+		return nil, err
+	}
+	return c.http.Do(req)
 }
 
 func (c *Client) invalidate() {
@@ -305,7 +325,7 @@ func (c *Client) Query(ctx context.Context, q Query) (source.Snapshot[model.Nota
 		req.Header.Set("Authorization", "Bearer "+tok)
 		req.Header.Set("nmsResponseFormat", "GEOJSON")
 		req.Header.Set("Accept", "application/json")
-		resp, err = c.http.Do(req)
+		resp, err = c.do(req)
 		snap.Source.RetrievedAt = c.now().UTC()
 		if err != nil {
 			return fail("request failed")
@@ -468,7 +488,7 @@ func (c *Client) Ping(ctx context.Context) (int, error) {
 			return 0, fmt.Errorf("%w: building request", ErrUpstream)
 		}
 		req.Header.Set("Authorization", "Bearer "+tok)
-		resp, err := c.http.Do(req)
+		resp, err := c.do(req)
 		if err != nil {
 			return 0, fmt.Errorf("%w: ping failed", ErrUpstream)
 		}
