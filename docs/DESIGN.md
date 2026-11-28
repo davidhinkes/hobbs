@@ -159,6 +159,38 @@ flowchart TB
 
 **No cache.** Every call fetches from the source live, so `served_from` is always `live`. A cache is added only on a measured need and must keep the same provenance contract.
 
+**How a briefing uses the upstream services** (as of 2026-11-28). hobbs only *searches*: it never downloads a full data set from the FAA and keeps no copy of one. Each briefing turns into these upstream requests:
+
+| Source | Requests per briefing | Why that many |
+|---|---|---|
+| FAA NMS-API, NOTAMs | **one search per airport and center** given, then one more per new en-route center the FAA lists on those NOTAMs (usually 0 to 2) | the API's `location` filter takes exactly one identifier (OpenAPI spec: a string matching `^[a-zA-Z0-9]{3,4}$`; no list form), so several places cannot be asked in one search (§5.5) |
+| FAA NMS-API, token | at most one, about every 30 minutes | OAuth2 tokens last 1,799 s and are reused across briefings |
+| AWC METARs, AWC TAFs | one each, for all the airports | AWC's `ids` filter takes a list |
+| AWC advisories | four (SIGMET, G-AIRMET, international SIGMET, CWA) | each feed is fetched whole |
+
+So a KSMO to KPSP briefing makes 2 or 3 NOTAM searches (KSMO, KPSP, and usually the implied center ZLA), and a briefing for 10 airports and centers makes about 10 to 15. The NOTAM searches are started together but leave hobbs no faster than `-nms-rate` (default 1 per second, no burst; §5.6), so they queue: the 10-location briefing spends about 11 s on NOTAMs. The AWC requests are not paced.
+
+```mermaid
+sequenceDiagram
+  participant A as Agent
+  participant H as hobbs
+  participant N as FAA NMS-API
+  participant W as NOAA AWC
+  A->>H: get_flight_briefing_data(KSMO, KPSP)
+  par NOTAMs, queued at 1 per second
+    H->>N: search location=KSMO
+    H->>N: search location=KPSP
+  and Weather, not paced
+    H->>W: METARs ids=KSMO,KPSP
+    H->>W: TAFs ids=KSMO,KPSP
+    H->>W: 4 advisory feeds, whole
+  end
+  N-->>H: NOTAMs, which list center ZLA
+  H->>N: search location=ZLA (implied center)
+  N-->>H: NOTAMs
+  H-->>A: one envelope: merged NOTAMs, weather, provenance per request
+```
+
 **Delivery:**
 
 ```mermaid
@@ -411,6 +443,7 @@ The design depends on how each upstream actually behaves. These facts were obser
 
 - **Auth:** `POST /v1/auth/token` with HTTP Basic and `grant_type=client_credentials`; the token lasts about 30 minutes. **Query:** `GET /nmsapi/v1/notams` with header `nmsResponseFormat: GEOJSON`. Filters combine with AND. `classification` needs the long names (`DOMESTIC`, not `DOM`), and alone returns a download link, not data. Zero results is HTTP 200 with `data: {}`.
 - **Data variation:** `type` sometimes missing; `effectiveEnd` can be `PERM`; limits are strings (`SFC`, `UNL`, `FL200`, `6000FT AMSL`, `100FT AGL`, bare `135FT`); `000`/`999` flight levels mean no stated limit; a radius of 999 means a whole region. **Vertical limits are often empty** in the structured fields although the Q-line states them (open item, §8).
+- **One location per search.** The OpenAPI spec the FAA sent (`nms-api.yaml`, 2026-11-22) defines `location` as a single identifier, pattern `^[a-zA-Z0-9]{3,4}$`. A comma-separated list is not documented and has not been tried; relying on undocumented behaviour could drop NOTAMs silently, so hobbs sends one search per identifier (§4).
 - **Rate limits, from the FAA's NMS-API FAQ** (attached to the onboarding email of 2026-11-22): the test environment ("Pre-Production") allows 1 request per second (content calls about 2). For Production it says "1 data pull every 3 minutes provides NOTAMs for the activity from the previous 3 minutes. More frequent use will require FAA approval", and one full (IL) pull every 24 hours; over the limit the API answers HTTP 429. Its usage model is a local copy (a daily full pull plus 3-minute deltas), not on-demand searches. Whether location searches like ours fall under those limits is asked of the FAA (§8). hobbs caps its own NMS requests with `-nms-rate` (§5.6).
 - **Terms, from the same FAQ and the Terms of Service (dated 2026-10-07):** redistribution and display are allowed, without required attribution, but the data must not be characterized as FAA data. No disclaimer is required; the FAA recommends that third-party briefing tools say NMS is not the authoritative source for non-US NOTAMs (it does not receive, for example, UK N-series NOTAMs). Production tokens last 1,799 s, as on staging; there is no status page for outages.
 - **Staging is not operational:** it includes test entries such as "AIRSPACE TESTED FOR CUTOVER SIMULATION". Hence `airworthy: false`.
